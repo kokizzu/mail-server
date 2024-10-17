@@ -206,7 +206,9 @@ impl QueueManagement for Server {
                     .iterate(
                         IterateParams::new(from_key, to_key).ascending(),
                         |key, value| {
-                            let message = Bincode::<queue::Message>::deserialize(value)?.inner;
+                            let message = Bincode::<queue::Message>::deserialize(value)
+                                .add_context(|ctx| ctx.ctx(trc::Key::Key, key))?
+                                .inner;
                             let matches = tenant_domains
                                 .as_ref()
                                 .map_or(true, |domains| message.has_domain(domains))
@@ -257,7 +259,8 @@ impl QueueManagement for Server {
                             Ok(max_total == 0 || total < max_total)
                         },
                     )
-                    .await?;
+                    .await
+                    .caused_by(trc::location!())?;
 
                 Ok(if values {
                     JsonResponse::new(json!({
@@ -512,7 +515,8 @@ impl QueueManagement for Server {
                             Ok(max_total == 0 || total < max_total)
                         },
                     )
-                    .await?;
+                    .await
+                    .caused_by(trc::location!())?;
 
                 Ok(JsonResponse::new(json!({
                         "data": {
