@@ -47,6 +47,7 @@ use dav_proto::{
     },
 };
 use directory::{Permission, Type, backend::internal::manage::ManageDirectory};
+use groupware::RFC_3986;
 use groupware::{
     DavCalendarResource, DavResourceName, cache::GroupwareCache, calendar::ArchivedTimezone,
 };
@@ -56,7 +57,6 @@ use jmap_proto::types::{
     acl::Acl,
     collection::{Collection, SyncCollection},
 };
-use percent_encoding::NON_ALPHANUMERIC;
 use std::sync::Arc;
 use store::{
     ahash::AHashMap,
@@ -129,19 +129,21 @@ impl PropFindRequestHandler for Server {
         let return_children = match headers.depth {
             Depth::One | Depth::None => true,
             Depth::Zero => false,
-            Depth::Infinity => {
-                if resource.account_id.is_none()
-                    || resource.resource.is_none()
-                    || matches!(resource.collection, Collection::FileNode)
+            Depth::Infinity => match resource.collection {
+                Collection::Principal => true,
+                Collection::Calendar | Collection::AddressBook
+                    if resource.account_id.is_some() && resource.resource.is_some() =>
                 {
+                    true
+                }
+                _ => {
                     return Err(DavErrorCondition::new(
                         StatusCode::FORBIDDEN,
                         BaseCondition::PropFindFiniteDepth,
                     )
                     .into());
                 }
-                true
-            }
+            },
         };
 
         // List shared resources
@@ -263,7 +265,7 @@ impl PropFindRequestHandler for Server {
                                         DavResourceName::Cal.base_path(),
                                         percent_encoding::utf8_percent_encode(
                                             &access_token.name,
-                                            NON_ALPHANUMERIC
+                                            RFC_3986
                                         ),
                                     ))],
                                 ));
@@ -277,7 +279,7 @@ impl PropFindRequestHandler for Server {
                                         DavResourceName::Card.base_path(),
                                         percent_encoding::utf8_percent_encode(
                                             &access_token.name,
-                                            NON_ALPHANUMERIC
+                                            RFC_3986
                                         ),
                                     ))],
                                 ));
