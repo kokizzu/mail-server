@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -120,7 +120,7 @@ impl GroupwareConfig {
                 .map(|s| s.to_string()),
             alarms_template: Template::parse(include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../../resources/email-templates/calendar-alarm.html"
+                "/../../resources/email-templates/calendar-alarm.html.min"
             )))
             .expect("Failed to parse calendar template"),
         }

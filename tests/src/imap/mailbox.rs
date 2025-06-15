@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -109,7 +109,7 @@ pub async fn test(mut imap: &mut ImapConnection, mut imap_check: &mut ImapConnec
     imap.assert_read(Type::Tagged, ResponseType::Ok).await;
     imap.send("RENAME \"Tofu\" \"INBOX\"").await;
     imap.assert_read(Type::Tagged, ResponseType::No).await;
-    imap.send("RENAME \"Tofu\" \"INBOX/Tofu\"").await;
+    imap.send("RENAME \"Tofu\" \"Inbox/Tofu\"").await;
     imap.assert_read(Type::Tagged, ResponseType::Ok).await;
     imap.send("RENAME \"Deleted Items\" \"Recycle Bin\"").await;
     imap.assert_read(Type::Tagged, ResponseType::Ok).await;

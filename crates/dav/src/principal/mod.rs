@@ -1,12 +1,12 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
 
 use common::auth::AccessToken;
 use dav_proto::schema::response::Href;
-use percent_encoding::NON_ALPHANUMERIC;
+use groupware::RFC_3986;
 
 use crate::DavResourceName;
 
@@ -23,7 +23,7 @@ impl CurrentUserPrincipal for AccessToken {
         Href(format!(
             "{}/{}/",
             DavResourceName::Principal.base_path(),
-            percent_encoding::utf8_percent_encode(&self.name, NON_ALPHANUMERIC)
+            percent_encoding::utf8_percent_encode(&self.name, RFC_3986)
         ))
     }
 }
