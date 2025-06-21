@@ -989,9 +989,9 @@ dependencies = [
 
 [[package]]
 name = "calcard"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6387223a016027ad73f3482d6e58f804d22edcc8bff1a31df877094850621a6"
+checksum = "720e412adf25f179f643b0753108cb308b812f82e1d34131c06b015c806e3f3c"
 dependencies = [
  "ahash",
  "chrono",
@@ -2235,6 +2235,7 @@ dependencies = [
  "common",
  "compact_str",
  "directory",
+ "groupware",
  "hashify",
  "jmap_proto",
  "mail-builder",
@@ -2843,6 +2844,7 @@ dependencies = [
 name = "groupware"
 version = "0.12.4"
 dependencies = [
+ "ahash",
  "calcard",
  "chrono",
  "common",
@@ -4476,10 +4478,13 @@ version = "0.12.4"
 dependencies = [
  "base64 0.22.1",
  "bincode 1.3.3",
+ "calcard",
  "common",
  "compact_str",
+ "dav-proto",
  "directory",
  "email",
+ "groupware",
  "jmap_proto",
  "lz4_flex",
  "mail-auth",

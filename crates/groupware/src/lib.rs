@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -7,11 +7,13 @@
 use calcard::common::timezone::Tz;
 use common::DavResources;
 use jmap_proto::types::collection::Collection;
+use percent_encoding::{AsciiSet, CONTROLS};
 
 pub mod cache;
 pub mod calendar;
 pub mod contact;
 pub mod file;
+pub mod scheduling;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DavResourceName {
@@ -19,7 +21,39 @@ pub enum DavResourceName {
     Cal,
     File,
     Principal,
+    Scheduling,
 }
+
+pub const RFC_3986: &AsciiSet = &CONTROLS
+    .add(b' ')
+    .add(b'!')
+    .add(b'"')
+    .add(b'#')
+    .add(b'$')
+    .add(b'%')
+    .add(b'&')
+    .add(b'\'')
+    .add(b'(')
+    .add(b')')
+    .add(b'*')
+    .add(b'+')
+    .add(b',')
+    .add(b'/')
+    .add(b':')
+    .add(b';')
+    .add(b'<')
+    .add(b'=')
+    .add(b'>')
+    .add(b'?')
+    .add(b'@')
+    .add(b'[')
+    .add(b'\\')
+    .add(b']')
+    .add(b'^')
+    .add(b'`')
+    .add(b'{')
+    .add(b'|')
+    .add(b'}');
 
 pub struct DestroyArchive<T>(pub T);
 
@@ -30,6 +64,7 @@ impl DavResourceName {
             "cal" => DavResourceName::Cal,
             "file" => DavResourceName::File,
             "pal" => DavResourceName::Principal,
+            "itip" => DavResourceName::Scheduling,
         )
     }
 
@@ -39,6 +74,7 @@ impl DavResourceName {
             DavResourceName::Cal => "/dav/cal",
             DavResourceName::File => "/dav/file",
             DavResourceName::Principal => "/dav/pal",
+            DavResourceName::Scheduling => "/dav/itip",
         }
     }
 
@@ -48,6 +84,7 @@ impl DavResourceName {
             DavResourceName::Cal => "/dav/cal/",
             DavResourceName::File => "/dav/file/",
             DavResourceName::Principal => "/dav/pal/",
+            DavResourceName::Scheduling => "/dav/itip/",
         }
     }
 
@@ -57,6 +94,7 @@ impl DavResourceName {
             DavResourceName::Cal => "CalDAV",
             DavResourceName::File => "WebDAV",
             DavResourceName::Principal => "Principal",
+            DavResourceName::Scheduling => "Scheduling",
         }
     }
 }
@@ -68,6 +106,7 @@ impl From<DavResourceName> for Collection {
             DavResourceName::Cal => Collection::Calendar,
             DavResourceName::File => Collection::FileNode,
             DavResourceName::Principal => Collection::Principal,
+            DavResourceName::Scheduling => Collection::CalendarScheduling,
         }
     }
 }
@@ -79,6 +118,7 @@ impl From<Collection> for DavResourceName {
             Collection::Calendar => DavResourceName::Cal,
             Collection::FileNode => DavResourceName::File,
             Collection::Principal => DavResourceName::Principal,
+            Collection::CalendarScheduling => DavResourceName::Scheduling,
             _ => unreachable!(),
         }
     }

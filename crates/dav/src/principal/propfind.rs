@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -16,11 +16,11 @@ use dav_proto::schema::{
     request::{DavPropertyValue, PropFind},
     response::{Href, MultiStatus, PropStat, Response},
 };
-use directory::{QueryBy, backend::internal::manage::ManageDirectory};
+use directory::{QueryBy, Type, backend::internal::manage::ManageDirectory};
+use groupware::RFC_3986;
 use groupware::cache::GroupwareCache;
 use hyper::StatusCode;
 use jmap_proto::types::collection::Collection;
-use percent_encoding::NON_ALPHANUMERIC;
 use trc::AddContext;
 
 use crate::{
@@ -86,7 +86,7 @@ impl PrincipalPropFind for Server {
                 response.set_namespace(Namespace::CardDav);
                 false
             }
-            Collection::Calendar | Collection::CalendarEvent => {
+            Collection::Calendar | Collection::CalendarEvent | Collection::CalendarScheduling => {
                 response.set_namespace(Namespace::CalDav);
                 false
             }
@@ -107,7 +107,7 @@ impl PrincipalPropFind for Server {
             let mut fields = Vec::with_capacity(properties.len());
             let mut fields_not_found = Vec::new();
 
-            let (name, description) = if access_token.primary_id() == account_id {
+            let (name, description, emails, typ) = if access_token.primary_id() == account_id {
                 (
                     Cow::Borrowed(access_token.name.as_str()),
                     access_token
@@ -115,6 +115,8 @@ impl PrincipalPropFind for Server {
                         .as_deref()
                         .unwrap_or(&access_token.name)
                         .to_string(),
+                    Cow::Borrowed(access_token.emails.as_slice()),
+                    Type::Individual,
                 )
             } else {
                 self.directory()
@@ -124,12 +126,19 @@ impl PrincipalPropFind for Server {
                     .map(|p| {
                         let name = p.name;
                         let description = p.description.unwrap_or_else(|| name.clone());
-                        (Cow::Owned(name.to_string()), description.to_string())
+                        (
+                            Cow::Owned(name.to_string()),
+                            description.to_string(),
+                            Cow::Owned(p.emails),
+                            p.typ,
+                        )
                     })
                     .unwrap_or_else(|| {
                         (
                             Cow::Owned(format!("_{}", account_id)),
                             format!("_{}", account_id),
+                            Cow::Owned(vec![]),
+                            Type::Individual,
                         )
                     })
             };
@@ -212,7 +221,7 @@ impl PrincipalPropFind for Server {
                                 vec![Href(format!(
                                     "{}/{}/",
                                     DavResourceName::Principal.base_path(),
-                                    percent_encoding::utf8_percent_encode(&name, NON_ALPHANUMERIC),
+                                    percent_encoding::utf8_percent_encode(&name, RFC_3986),
                                 ))],
                             ));
                         }
@@ -257,7 +266,7 @@ impl PrincipalPropFind for Server {
                                 vec![Href(format!(
                                     "{}/{}/",
                                     DavResourceName::Principal.base_path(),
-                                    percent_encoding::utf8_percent_encode(&name, NON_ALPHANUMERIC),
+                                    percent_encoding::utf8_percent_encode(&name, RFC_3986),
                                 ))],
                             ));
                         }
@@ -267,7 +276,7 @@ impl PrincipalPropFind for Server {
                                 vec![Href(format!(
                                     "{}/{}/",
                                     DavResourceName::Cal.base_path(),
-                                    percent_encoding::utf8_percent_encode(&name, NON_ALPHANUMERIC),
+                                    percent_encoding::utf8_percent_encode(&name, RFC_3986),
                                 ))],
                             ));
                             response.set_namespace(Namespace::CalDav);
@@ -278,7 +287,7 @@ impl PrincipalPropFind for Server {
                                 vec![Href(format!(
                                     "{}/{}/",
                                     DavResourceName::Card.base_path(),
-                                    percent_encoding::utf8_percent_encode(&name, NON_ALPHANUMERIC),
+                                    percent_encoding::utf8_percent_encode(&name, RFC_3986),
                                 ))],
                             ));
                             response.set_namespace(Namespace::CardDav);
@@ -286,6 +295,45 @@ impl PrincipalPropFind for Server {
                         PrincipalProperty::PrincipalAddress => {
                             fields_not_found.push(DavPropertyValue::empty(property.clone()));
                             response.set_namespace(Namespace::CardDav);
+                        }
+                        PrincipalProperty::CalendarUserAddressSet => {
+                            fields.push(DavPropertyValue::new(
+                                property.clone(),
+                                emails
+                                    .iter()
+                                    .map(|email| Href(format!("mailto:{email}",)))
+                                    .collect::<Vec<_>>(),
+                            ));
+                            response.set_namespace(Namespace::CalDav);
+                        }
+                        PrincipalProperty::CalendarUserType => {
+                            fields.push(DavPropertyValue::new(
+                                property.clone(),
+                                typ.as_str().to_uppercase(),
+                            ));
+                            response.set_namespace(Namespace::CalDav);
+                        }
+                        PrincipalProperty::ScheduleInboxURL => {
+                            fields.push(DavPropertyValue::new(
+                                property.clone(),
+                                vec![Href(format!(
+                                    "{}/{}/inbox/",
+                                    DavResourceName::Scheduling.base_path(),
+                                    percent_encoding::utf8_percent_encode(&name, RFC_3986),
+                                ))],
+                            ));
+                            response.set_namespace(Namespace::CalDav);
+                        }
+                        PrincipalProperty::ScheduleOutboxURL => {
+                            fields.push(DavPropertyValue::new(
+                                property.clone(),
+                                vec![Href(format!(
+                                    "{}/{}/outbox/",
+                                    DavResourceName::Scheduling.base_path(),
+                                    percent_encoding::utf8_percent_encode(&name, RFC_3986),
+                                ))],
+                            ));
+                            response.set_namespace(Namespace::CalDav);
                         }
                     },
                     _ => {
@@ -310,7 +358,7 @@ impl PrincipalPropFind for Server {
                 Href(format!(
                     "{}/{}/",
                     base_path,
-                    percent_encoding::utf8_percent_encode(&name, NON_ALPHANUMERIC),
+                    percent_encoding::utf8_percent_encode(&name, RFC_3986),
                 )),
                 prop_stats,
             ));
@@ -351,7 +399,7 @@ impl PrincipalPropFind for Server {
             Ok(Href(format!(
                 "{}/{}/",
                 DavResourceName::Principal.base_path(),
-                percent_encoding::utf8_percent_encode(&name, NON_ALPHANUMERIC),
+                percent_encoding::utf8_percent_encode(&name, RFC_3986),
             )))
         }
     }

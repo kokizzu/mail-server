@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -39,7 +39,7 @@ use dav_proto::{
             Privilege, ReportSet, ResourceType, Rfc1123DateTime, SupportedCollation, SupportedLock,
             WebDavProperty,
         },
-        request::{DavPropertyValue, PropFind},
+        request::{DavPropertyValue, DeadProperty, PropFind},
         response::{
             AclRestrictions, BaseCondition, Href, List, MultiStatus, PropStat, Response,
             SupportedPrivilege,
@@ -50,13 +50,13 @@ use directory::{Permission, Type, backend::internal::manage::ManageDirectory};
 use groupware::{
     DavCalendarResource, DavResourceName, cache::GroupwareCache, calendar::ArchivedTimezone,
 };
+use groupware::{RFC_3986, calendar::SCHEDULE_INBOX_ID};
 use http_proto::HttpResponse;
 use hyper::StatusCode;
 use jmap_proto::types::{
     acl::Acl,
     collection::{Collection, SyncCollection},
 };
-use percent_encoding::NON_ALPHANUMERIC;
 use std::sync::Arc;
 use store::{
     ahash::AHashMap,
@@ -129,31 +129,36 @@ impl PropFindRequestHandler for Server {
         let return_children = match headers.depth {
             Depth::One | Depth::None => true,
             Depth::Zero => false,
-            Depth::Infinity => {
-                if resource.account_id.is_none()
-                    || resource.resource.is_none()
-                    || matches!(resource.collection, Collection::FileNode)
+            Depth::Infinity => match resource.collection {
+                Collection::Principal => true,
+                Collection::Calendar | Collection::AddressBook | Collection::CalendarScheduling
+                    if resource.account_id.is_some() && resource.resource.is_some() =>
                 {
+                    true
+                }
+                _ => {
                     return Err(DavErrorCondition::new(
                         StatusCode::FORBIDDEN,
                         BaseCondition::PropFindFiniteDepth,
                     )
                     .into());
                 }
-                true
-            }
+            },
         };
 
         // List shared resources
         if let Some(account_id) = resource.account_id {
             match resource.collection {
-                Collection::FileNode | Collection::Calendar | Collection::AddressBook => {
+                Collection::FileNode
+                | Collection::Calendar
+                | Collection::AddressBook
+                | Collection::CalendarScheduling => {
                     // Validate permissions
                     access_token.assert_has_permission(match resource.collection {
                         Collection::FileNode => Permission::DavFilePropFind,
-                        Collection::Calendar | Collection::CalendarEvent => {
-                            Permission::DavCalPropFind
-                        }
+                        Collection::Calendar
+                        | Collection::CalendarEvent
+                        | Collection::CalendarScheduling => Permission::DavCalPropFind,
                         Collection::AddressBook | Collection::ContactCard => {
                             Permission::DavCardPropFind
                         }
@@ -263,7 +268,7 @@ impl PropFindRequestHandler for Server {
                                         DavResourceName::Cal.base_path(),
                                         percent_encoding::utf8_percent_encode(
                                             &access_token.name,
-                                            NON_ALPHANUMERIC
+                                            RFC_3986
                                         ),
                                     ))],
                                 ));
@@ -277,7 +282,7 @@ impl PropFindRequestHandler for Server {
                                         DavResourceName::Card.base_path(),
                                         percent_encoding::utf8_percent_encode(
                                             &access_token.name,
-                                            NON_ALPHANUMERIC
+                                            RFC_3986
                                         ),
                                     ))],
                                 ));
@@ -328,9 +333,9 @@ impl PropFindRequestHandler for Server {
                     // Validate permissions
                     access_token.assert_has_permission(match resource.collection {
                         Collection::FileNode => Permission::DavFilePropFind,
-                        Collection::Calendar | Collection::CalendarEvent => {
-                            Permission::DavCalPropFind
-                        }
+                        Collection::Calendar
+                        | Collection::CalendarEvent
+                        | Collection::CalendarScheduling => Permission::DavCalPropFind,
                         Collection::AddressBook | Collection::ContactCard => {
                             Permission::DavCardPropFind
                         }
@@ -516,16 +521,15 @@ impl PropFindRequestHandler for Server {
                         }
 
                         if maybe_has_vanished {
-                            vanished = self
-                                .store()
-                                .vanished(
-                                    account_id,
-                                    sync_collection.vanished_collection().unwrap(),
-                                    Query::Since(id),
-                                )
-                                .await
-                                .caused_by(trc::location!())?;
-                            total_changes += vanished.len();
+                            if let Some(vanished_collection) = sync_collection.vanished_collection()
+                            {
+                                vanished = self
+                                    .store()
+                                    .vanished(account_id, vanished_collection, Query::Since(id))
+                                    .await
+                                    .caused_by(trc::location!())?;
+                                total_changes += vanished.len();
+                            }
                         }
 
                         // Truncate changes
@@ -772,7 +776,7 @@ impl PropFindRequestHandler for Server {
                     Collection::FileNode => {
                         (FILE_CONTAINER_PROPS.as_slice(), FILE_ITEM_PROPS.as_slice())
                     }
-                    Collection::Calendar => (
+                    Collection::Calendar | Collection::CalendarScheduling => (
                         CALENDAR_CONTAINER_PROPS.as_slice(),
                         CALENDAR_ITEM_PROPS.as_slice(),
                     ),
@@ -818,6 +822,7 @@ impl PropFindRequestHandler for Server {
         };
 
         let view_as_id = access_token.primary_id();
+        let is_scheduling = collection_container == Collection::CalendarScheduling;
         for item in paths {
             let account_id = item.account_id;
             let document_id = item.document_id;
@@ -826,18 +831,25 @@ impl PropFindRequestHandler for Server {
             } else {
                 collection_children
             };
-            let archive_ = if let Some(archive_) = self
+
+            // Unarchive resource
+            let archive_;
+            let archive = if is_scheduling && item.is_container {
+                archive_ = Archive::default();
+                ArchivedResource::CalendarSchedulingCollection(
+                    item.document_id == SCHEDULE_INBOX_ID,
+                )
+            } else if let Some(archive) = self
                 .get_archive(account_id, collection, document_id)
                 .await
                 .caused_by(trc::location!())?
             {
-                archive_
+                archive_ = archive;
+                ArchivedResource::from_archive(&archive_, collection).caused_by(trc::location!())?
             } else {
                 response.add_response(Response::new_status([item.name], StatusCode::NOT_FOUND));
                 continue;
             };
-            let archive = ArchivedResource::from_archive(&archive_, collection)
-                .caused_by(trc::location!())?;
 
             // Filter
             let mut calendar_filter = None;
@@ -974,10 +986,14 @@ impl PropFindRequestHandler for Server {
                             }
                         }
                         WebDavProperty::SupportedLock => {
-                            fields.push(DavPropertyValue::new(
-                                property.clone(),
-                                SupportedLock::default(),
-                            ));
+                            if !is_scheduling {
+                                fields.push(DavPropertyValue::new(
+                                    property.clone(),
+                                    SupportedLock::default(),
+                                ));
+                            } else {
+                                fields.push(DavPropertyValue::empty(property.clone()));
+                            }
                         }
                         WebDavProperty::SupportedReportSet => {
                             if let Some(report_set) = archive.supported_report_set() {
@@ -1069,70 +1085,35 @@ impl PropFindRequestHandler for Server {
                             fields.push(DavPropertyValue::empty(property.clone()));
                         }
                         WebDavProperty::SupportedPrivilegeSet => {
-                            fields.push(DavPropertyValue::new(
-                                property.clone(),
-                                vec![
-                                    SupportedPrivilege::new(Privilege::All, "Any operation")
-                                        .with_abstract()
-                                        .with_supported_privilege(
-                                            SupportedPrivilege::new(
-                                                Privilege::Read,
-                                                "Read objects",
-                                            )
-                                            .with_supported_privilege(SupportedPrivilege::new(
-                                                Privilege::ReadCurrentUserPrivilegeSet,
-                                                "Read current user privileges",
-                                            )),
-                                        )
-                                        .with_supported_privilege(
-                                            SupportedPrivilege::new(
-                                                Privilege::Write,
-                                                "Write objects",
-                                            )
-                                            .with_supported_privilege(SupportedPrivilege::new(
-                                                Privilege::WriteProperties,
-                                                "Write properties",
-                                            ))
-                                            .with_supported_privilege(SupportedPrivilege::new(
-                                                Privilege::WriteContent,
-                                                "Write object contents",
-                                            ))
-                                            .with_supported_privilege(SupportedPrivilege::new(
-                                                Privilege::Bind,
-                                                "Add resources to a collection",
-                                            ))
-                                            .with_supported_privilege(SupportedPrivilege::new(
-                                                Privilege::Unbind,
-                                                "Remove resources from a collection",
-                                            ))
-                                            .with_supported_privilege(SupportedPrivilege::new(
-                                                Privilege::Unlock,
-                                                "Unlock resources",
-                                            )),
-                                        )
-                                        .with_supported_privilege(SupportedPrivilege::new(
-                                            Privilege::ReadAcl,
-                                            "Read ACL",
-                                        ))
-                                        .with_supported_privilege(SupportedPrivilege::new(
-                                            Privilege::WriteAcl,
-                                            "Write ACL",
-                                        ))
-                                        .with_opt_supported_privilege(
-                                            (collection_container == Collection::Calendar).then(
-                                                || {
-                                                    SupportedPrivilege::new(
-                                                        Privilege::ReadFreeBusy,
-                                                        "Read free/busy information",
-                                                    )
-                                                },
-                                            ),
-                                        ),
-                                ],
-                            ));
+                            if !is_scheduling {
+                                fields.push(DavPropertyValue::new(
+                                    property.clone(),
+                                    vec![SupportedPrivilege::all_privileges(
+                                        collection_container == Collection::Calendar,
+                                    )],
+                                ));
+                            } else {
+                                fields.push(DavPropertyValue::new(
+                                    property.clone(),
+                                    vec![SupportedPrivilege::all_scheduling_privileges(matches!(
+                                        archive,
+                                        ArchivedResource::CalendarScheduling(_)
+                                            | ArchivedResource::CalendarSchedulingCollection(true)
+                                    ))],
+                                ));
+                            }
                         }
                         WebDavProperty::CurrentUserPrivilegeSet => {
-                            let privileges = if access_token.is_member(account_id) {
+                            let privileges = if is_scheduling {
+                                Privilege::scheduling(
+                                    matches!(
+                                        archive,
+                                        ArchivedResource::CalendarScheduling(_)
+                                            | ArchivedResource::CalendarSchedulingCollection(true)
+                                    ),
+                                    access_token.is_member(account_id),
+                                )
+                            } else if access_token.is_member(account_id) {
                                 Privilege::all(matches!(
                                     collection,
                                     Collection::Calendar | Collection::CalendarEvent
@@ -1197,7 +1178,9 @@ impl PropFindRequestHandler for Server {
                         }
                     },
                     DavProperty::DeadProperty(tag) => {
-                        if let Some(value) = dead_properties.find_tag(&tag.name) {
+                        if let Some(value) =
+                            dead_properties.and_then(|props| props.find_tag(&tag.name))
+                        {
                             fields.push(DavPropertyValue::new(property.clone(), value));
                         } else {
                             fields_not_found.push(DavPropertyValue::empty(property.clone()));
@@ -1395,6 +1378,52 @@ impl PropFindRequestHandler for Server {
                                 DavValue::CData(ical),
                             ));
                         }
+                        (
+                            CalDavProperty::CalendarData(_),
+                            ArchivedResource::CalendarScheduling(event),
+                        ) => {
+                            fields.push(DavPropertyValue::new(
+                                property.clone(),
+                                DavValue::CData(event.inner.itip.to_string()),
+                            ));
+                        }
+                        (CalDavProperty::ScheduleTag, ArchivedResource::CalendarEvent(event))
+                            if event.inner.schedule_tag.is_some() =>
+                        {
+                            fields.push(DavPropertyValue::new(
+                                property.clone(),
+                                DavValue::String(format!(
+                                    "\"{}\"",
+                                    event.inner.schedule_tag.as_ref().unwrap()
+                                )),
+                            ));
+                        }
+                        (CalDavProperty::ScheduleCalendarTransp, ArchivedResource::Calendar(_)) => {
+                            fields.push(DavPropertyValue::new(
+                                property.clone(),
+                                DavValue::DeadProperty(DeadProperty::single_with_ns(
+                                    Namespace::CalDav,
+                                    "opaque",
+                                )),
+                            ));
+                        }
+                        (
+                            CalDavProperty::ScheduleDefaultCalendarURL,
+                            ArchivedResource::CalendarSchedulingCollection(true),
+                        ) => {
+                            if let Some(default_cal) = &self.core.groupware.default_calendar_name {
+                                fields.push(DavPropertyValue::new(
+                                    property.clone(),
+                                    vec![Href(format!(
+                                        "{}/{}/{default_cal}/",
+                                        DavResourceName::Cal.base_path(),
+                                        item.name.split('/').nth(3).unwrap_or_default()
+                                    ))],
+                                ));
+                            } else {
+                                fields_not_found.push(DavPropertyValue::empty(property.clone()));
+                            }
+                        }
 
                         _ => {
                             if !skip_not_found {
@@ -1414,8 +1443,12 @@ impl PropFindRequestHandler for Server {
             }
 
             // Add dead properties
-            if skip_not_found && !dead_properties.0.is_empty() {
-                dead_properties.to_dav_values(&mut fields);
+            if skip_not_found {
+                if let Some(dead_properties) =
+                    dead_properties.filter(|dead_properties| !dead_properties.0.is_empty())
+                {
+                    dead_properties.to_dav_values(&mut fields);
+                }
             }
 
             // Add response

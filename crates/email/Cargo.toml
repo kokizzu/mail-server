@@ -12,6 +12,7 @@ trc = { path = "../trc" }
 jmap_proto = { path = "../jmap-proto" }
 common = { path =  "../common" }
 directory = { path =  "../directory" }
+groupware = { path =  "../groupware" }
 spam-filter = { path =  "../spam-filter" }
 smtp-proto = { version = "0.1", features = ["rkyv"] }
 mail-parser = { version = "0.11", features = ["full_encoding"] } 

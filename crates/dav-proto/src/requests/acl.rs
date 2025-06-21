@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -252,6 +252,22 @@ impl Privilege {
             (Namespace::Dav, Element::Unbind) => Some(Privilege::Unbind),
             (Namespace::Dav, Element::All) => Some(Privilege::All),
             (Namespace::CalDav, Element::ReadFreeBusy) => Some(Privilege::ReadFreeBusy),
+            (Namespace::CalDav, Element::ScheduleDeliver) => Some(Privilege::ScheduleDeliver),
+            (Namespace::CalDav, Element::ScheduleDeliverInvite) => {
+                Some(Privilege::ScheduleDeliverInvite)
+            }
+            (Namespace::CalDav, Element::ScheduleDeliverReply) => {
+                Some(Privilege::ScheduleDeliverReply)
+            }
+            (Namespace::CalDav, Element::ScheduleQueryFreebusy) => {
+                Some(Privilege::ScheduleQueryFreeBusy)
+            }
+            (Namespace::CalDav, Element::ScheduleSend) => Some(Privilege::ScheduleSend),
+            (Namespace::CalDav, Element::ScheduleSendInvite) => Some(Privilege::ScheduleSendInvite),
+            (Namespace::CalDav, Element::ScheduleSendReply) => Some(Privilege::ScheduleSendReply),
+            (Namespace::CalDav, Element::ScheduleSendFreebusy) => {
+                Some(Privilege::ScheduleSendFreeBusy)
+            }
             _ => None,
         }
     }

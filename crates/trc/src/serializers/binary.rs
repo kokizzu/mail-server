@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: LicenseRef-SEL
  *
@@ -892,6 +892,9 @@ impl EventType {
             EventType::Calendar(CalendarEvent::AlarmSkipped) => 580,
             EventType::Calendar(CalendarEvent::AlarmRecipientOverride) => 581,
             EventType::Calendar(CalendarEvent::AlarmFailed) => 582,
+            EventType::Calendar(CalendarEvent::ItipMessageSent) => 583,
+            EventType::Calendar(CalendarEvent::ItipMessageReceived) => 584,
+            EventType::Calendar(CalendarEvent::ItipMessageError) => 585,
         }
     }
 
@@ -1520,6 +1523,9 @@ impl EventType {
             580 => Some(EventType::Calendar(CalendarEvent::AlarmSkipped)),
             581 => Some(EventType::Calendar(CalendarEvent::AlarmRecipientOverride)),
             582 => Some(EventType::Calendar(CalendarEvent::AlarmFailed)),
+            583 => Some(EventType::Calendar(CalendarEvent::ItipMessageSent)),
+            584 => Some(EventType::Calendar(CalendarEvent::ItipMessageReceived)),
+            585 => Some(EventType::Calendar(CalendarEvent::ItipMessageError)),
             _ => None,
         }
     }

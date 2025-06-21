@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -57,7 +57,7 @@ impl TryFrom<Acl> for AddressBookRight {
         match value {
             Acl::Read => Ok(AddressBookRight::Read),
             Acl::Modify => Ok(AddressBookRight::Write),
-            Acl::Share => Ok(AddressBookRight::Share),
+            Acl::Administer => Ok(AddressBookRight::Share),
             Acl::Delete => Ok(AddressBookRight::Delete),
             _ => Err(value),
         }
@@ -69,7 +69,7 @@ impl From<AddressBookRight> for Acl {
         match value {
             AddressBookRight::Read => Acl::Read,
             AddressBookRight::Write => Acl::Modify,
-            AddressBookRight::Share => Acl::Share,
+            AddressBookRight::Share => Acl::Administer,
             AddressBookRight::Delete => Acl::Delete,
         }
     }

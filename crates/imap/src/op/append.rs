@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -87,13 +87,12 @@ impl<T: SessionStream> SessionData<T> {
                 .id(arguments.tag));
         }
 
-        // Obtain quota
+        // Obtain access token
         let access_token = self
             .server
             .get_access_token(mailbox.account_id)
             .await
             .imap_ctx(&arguments.tag, trc::location!())?;
-        let resource_token = access_token.as_resource_token();
         let spam_train = self.server.email_bayes_can_train(&access_token);
 
         // Append messages
@@ -106,7 +105,7 @@ impl<T: SessionStream> SessionData<T> {
                 .email_ingest(IngestEmail {
                     raw_message: &message.message,
                     message: MessageParser::new().parse(&message.message),
-                    resource: resource_token.clone(),
+                    access_token: &access_token,
                     mailbox_ids: vec![mailbox_id],
                     keywords: message.flags.into_iter().map(Keyword::from).collect(),
                     received_at: message.received_at.map(|d| d as u64),

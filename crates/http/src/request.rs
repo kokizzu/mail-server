@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -16,10 +16,10 @@ use common::{
 };
 use dav::{DavMethod, request::DavRequestHandler};
 use directory::Permission;
-use groupware::DavResourceName;
+use groupware::{DavResourceName, calendar::itip::ItipIngest};
 use http_proto::{
-    DownloadResponse, HttpContext, HttpRequest, HttpResponse, HttpResponseBody, HttpSessionData,
-    JsonProblemResponse, ToHttpResponse, form_urlencoded, request::fetch_body,
+    DownloadResponse, HtmlResponse, HttpContext, HttpRequest, HttpResponse, HttpResponseBody,
+    HttpSessionData, JsonProblemResponse, ToHttpResponse, form_urlencoded, request::fetch_body,
 };
 use hyper::{
     Method, StatusCode, body,
@@ -235,7 +235,7 @@ impl ParseHttp for Server {
                             "DAV",
                             concat!(
                                 "1, 2, 3, access-control, extended-mkcol, calendar-access, ",
-                                "calendar-no-timezone, addressbook"
+                                "calendar-auto-schedule, calendar-no-timezone, addressbook"
                             ),
                         )
                         .with_header(
@@ -409,7 +409,7 @@ impl ParseHttp for Server {
                                 params.get("token"),
                             ) {
                                 // SPDX-SnippetBegin
-                                // SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+                                // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
                                 // SPDX-License-Identifier: LicenseRef-SEL
                                 #[cfg(feature = "enterprise")]
                                 (Some("telemetry"), Some("traces"), Some(token))
@@ -434,7 +434,7 @@ impl ParseHttp for Server {
 
                             return match grant_type {
                                 // SPDX-SnippetBegin
-                                // SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+                                // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
                                 // SPDX-License-Identifier: LicenseRef-SEL
                                 #[cfg(feature = "enterprise")]
                                 GrantType::LiveTracing | GrantType::LiveMetrics => {
@@ -476,6 +476,25 @@ impl ParseHttp for Server {
                         .await?;
 
                     return self.handle_autoconfig_request(&req).await;
+                }
+            }
+            "calendar" => {
+                // Limit anonymous requests
+                self.is_http_anonymous_request_allowed(&session.remote_ip)
+                    .await?;
+
+                if self.core.groupware.itip_http_rsvp_url.is_some()
+                    && req.method() == Method::GET
+                    && path.next().unwrap_or_default() == "rsvp"
+                {
+                    return self
+                        .http_rsvp_handle(req.uri().query().unwrap_or_default())
+                        .await
+                        .map(|response| {
+                            HtmlResponse::new(response)
+                                .into_http_response()
+                                .with_no_store()
+                        });
                 }
             }
             "autodiscover" => {
@@ -555,7 +574,7 @@ impl ParseHttp for Server {
             #[cfg(feature = "enterprise")]
             "logo.svg" if self.is_enterprise_edition() => {
                 // SPDX-SnippetBegin
-                // SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+                // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
                 // SPDX-License-Identifier: LicenseRef-SEL
 
                 match self

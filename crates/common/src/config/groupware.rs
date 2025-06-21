@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -30,6 +30,12 @@ pub struct GroupwareConfig {
     pub alarms_from_name: String,
     pub alarms_from_email: Option<String>,
     pub alarms_template: Template<CalendarTemplateVariable>,
+    pub itip_enabled: bool,
+    pub itip_auto_add: bool,
+    pub itip_inbound_max_ical_size: usize,
+    pub itip_outbound_max_recipients: usize,
+    pub itip_http_rsvp_url: Option<String>,
+    pub itip_http_rsvp_expiration: u64,
 
     // Addressbook settings
     pub max_vcard_size: usize,
@@ -120,9 +126,44 @@ impl GroupwareConfig {
                 .map(|s| s.to_string()),
             alarms_template: Template::parse(include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../../resources/email-templates/calendar-alarm.html"
+                "/../../resources/email-templates/calendar-alarm.html.min"
             )))
             .expect("Failed to parse calendar template"),
+            itip_enabled: config
+                .property("calendar.scheduling.enable")
+                .unwrap_or(true),
+            itip_auto_add: config
+                .property("calendar.scheduling.inbound.auto-add")
+                .unwrap_or(false),
+            itip_inbound_max_ical_size: config
+                .property("calendar.scheduling.inbound.max-size")
+                .unwrap_or(512 * 1024),
+            itip_outbound_max_recipients: config
+                .property("calendar.scheduling.outbound.max-recipients")
+                .unwrap_or(100),
+            itip_http_rsvp_url: if config
+                .property("calendar.scheduling.http-rsvp.enable")
+                .unwrap_or(true)
+            {
+                if let Some(url) = config
+                    .value("calendar.scheduling.http-rsvp.url")
+                    .map(|v| v.trim().trim_end_matches('/'))
+                    .filter(|v| !v.is_empty())
+                {
+                    Some(url.to_string())
+                } else {
+                    Some(format!(
+                        "https://{}/calendar/rsvp",
+                        config.value("server.hostname").unwrap_or("localhost")
+                    ))
+                }
+            } else {
+                None
+            },
+            itip_http_rsvp_expiration: config
+                .property_or_default::<Duration>("calendar.scheduling.http-rsvp.expiration", "90d")
+                .map(|d| d.as_secs())
+                .unwrap_or(90 * 24 * 60 * 60),
         }
     }
 }

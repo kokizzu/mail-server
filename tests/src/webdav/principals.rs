@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -23,7 +23,7 @@ pub async fn test(test: &WebDavTest) {
             ALL_DAV_PROPERTIES,
         )
         .await;
-    for (account, _, name, _) in TEST_USERS {
+    for (account, _, name, email) in TEST_USERS {
         let props = response.properties(&format!(
             "{}/{}/",
             DavResourceName::Principal.base_path(),
@@ -77,6 +77,34 @@ pub async fn test(test: &WebDavTest) {
         props
             .get(DavProperty::WebDav(WebDavProperty::ResourceType))
             .with_values(["D:principal", "D:collection"])
+            .with_status(StatusCode::OK);
+
+        // Scheduling properties
+        props
+            .get(DavProperty::Principal(
+                PrincipalProperty::CalendarUserAddressSet,
+            ))
+            .with_values([format!("D:href:mailto:{email}",).as_str()])
+            .with_status(StatusCode::OK);
+        props
+            .get(DavProperty::Principal(PrincipalProperty::CalendarUserType))
+            .with_values(["INDIVIDUAL"])
+            .with_status(StatusCode::OK);
+        props
+            .get(DavProperty::Principal(PrincipalProperty::ScheduleInboxURL))
+            .with_values([format!(
+                "D:href:{}/{account}/inbox/",
+                DavResourceName::Scheduling.base_path()
+            )
+            .as_str()])
+            .with_status(StatusCode::OK);
+        props
+            .get(DavProperty::Principal(PrincipalProperty::ScheduleOutboxURL))
+            .with_values([format!(
+                "D:href:{}/{account}/outbox/",
+                DavResourceName::Scheduling.base_path()
+            )
+            .as_str()])
             .with_status(StatusCode::OK);
     }
 

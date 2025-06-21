@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -1895,6 +1895,9 @@ impl CalendarEvent {
             CalendarEvent::AlarmSkipped => "Calendar alarm skipped",
             CalendarEvent::AlarmRecipientOverride => "Calendar alarm recipient overriden",
             CalendarEvent::AlarmFailed => "Calendar alarm could not be sent",
+            CalendarEvent::ItipMessageSent => "Calendar iTIP message sent",
+            CalendarEvent::ItipMessageReceived => "Calendar iTIP message received",
+            CalendarEvent::ItipMessageError => "iTIP message error",
         }
     }
 
@@ -1907,6 +1910,11 @@ impl CalendarEvent {
             CalendarEvent::AlarmSkipped => "A calendar alarm was skipped",
             CalendarEvent::AlarmRecipientOverride => "A calendar alarm recipient was overridden",
             CalendarEvent::AlarmFailed => "A calendar alarm could not be sent to the recipient",
+            CalendarEvent::ItipMessageSent => "A calendar iTIP message has been sent",
+            CalendarEvent::ItipMessageReceived => "A calendar iTIP/iMIP message has been received",
+            CalendarEvent::ItipMessageError => {
+                "An error occurred while processing an iTIP/iMIP message"
+            }
         }
     }
 }

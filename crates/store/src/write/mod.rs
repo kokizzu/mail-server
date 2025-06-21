@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -208,6 +208,10 @@ pub enum TaskQueueClass {
         due: u64,
         event_id: u16,
         alarm_id: u16,
+    },
+    SendImip {
+        due: u64,
+        is_payload: bool,
     },
 }
 

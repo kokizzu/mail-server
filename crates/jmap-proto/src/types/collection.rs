@@ -1,18 +1,16 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
 
+use super::type_state::DataType;
+use compact_str::CompactString;
 use std::{
     fmt::{self, Display, Formatter},
     str::FromStr,
 };
-
-use compact_str::CompactString;
 use utils::map::bitmap::BitmapItem;
-
-use super::{property::Property, type_state::DataType};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Default)]
 #[repr(u8)]
@@ -30,8 +28,9 @@ pub enum Collection {
     AddressBook = 10,
     ContactCard = 11,
     FileNode = 12,
+    CalendarScheduling = 13,
     #[default]
-    None = 13,
+    None = 14,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Default)]
@@ -45,8 +44,9 @@ pub enum SyncCollection {
     Identity = 5,
     EmailSubmission = 6,
     SieveScript = 7,
+    CalendarScheduling = 8,
     #[default]
-    None = 8,
+    None = 9,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -74,6 +74,7 @@ impl Collection {
             Collection::CalendarEvent => Some(Collection::Calendar),
             Collection::ContactCard => Some(Collection::AddressBook),
             Collection::FileNode => Some(Collection::FileNode),
+            Collection::CalendarScheduling => Some(Collection::CalendarScheduling),
             _ => None,
         }
     }
@@ -84,16 +85,7 @@ impl Collection {
             Collection::Calendar => Some(Collection::CalendarEvent),
             Collection::AddressBook => Some(Collection::ContactCard),
             Collection::FileNode => Some(Collection::FileNode),
-            _ => None,
-        }
-    }
-
-    pub fn parent_property(&self) -> Option<Property> {
-        match self {
-            Collection::Email => Some(Property::MailboxIds),
-            Collection::CalendarEvent => Some(Property::ParentId),
-            Collection::ContactCard => Some(Property::ParentId),
-            Collection::FileNode => Some(Property::ParentId),
+            Collection::CalendarScheduling => Some(Collection::CalendarScheduling),
             _ => None,
         }
     }
@@ -128,6 +120,7 @@ impl SyncCollection {
             SyncCollection::Identity => Collection::Identity,
             SyncCollection::EmailSubmission => Collection::EmailSubmission,
             SyncCollection::SieveScript => Collection::SieveScript,
+            SyncCollection::CalendarScheduling => Collection::CalendarScheduling,
             SyncCollection::None => Collection::None,
         }
     }
@@ -156,6 +149,7 @@ impl From<Collection> for SyncCollection {
             Collection::Principal => SyncCollection::None,
             Collection::Calendar => SyncCollection::Calendar,
             Collection::CalendarEvent => SyncCollection::Calendar,
+            Collection::CalendarScheduling => SyncCollection::CalendarScheduling,
             Collection::AddressBook => SyncCollection::AddressBook,
             Collection::ContactCard => SyncCollection::AddressBook,
             Collection::FileNode => SyncCollection::FileNode,
@@ -180,6 +174,7 @@ impl From<u8> for Collection {
             10 => Collection::AddressBook,
             11 => Collection::ContactCard,
             12 => Collection::FileNode,
+            13 => Collection::CalendarScheduling,
             _ => Collection::None,
         }
     }
@@ -196,6 +191,7 @@ impl From<u8> for SyncCollection {
             5 => SyncCollection::Identity,
             6 => SyncCollection::EmailSubmission,
             7 => SyncCollection::SieveScript,
+            8 => SyncCollection::CalendarScheduling,
             _ => SyncCollection::None,
         }
     }
@@ -217,6 +213,7 @@ impl From<u64> for Collection {
             10 => Collection::AddressBook,
             11 => Collection::ContactCard,
             12 => Collection::FileNode,
+            13 => Collection::CalendarScheduling,
             _ => Collection::None,
         }
     }
@@ -285,6 +282,7 @@ impl Collection {
             Collection::AddressBook => "addressBook",
             Collection::ContactCard => "contactCard",
             Collection::FileNode => "fileNode",
+            Collection::CalendarScheduling => "calendarScheduling",
             Collection::None => "",
         }
     }
@@ -340,6 +338,7 @@ impl SyncCollection {
             SyncCollection::Identity => "identity",
             SyncCollection::EmailSubmission => "emailSubmission",
             SyncCollection::SieveScript => "sieveScript",
+            SyncCollection::CalendarScheduling => "calendarScheduling",
             SyncCollection::None => "",
         }
     }

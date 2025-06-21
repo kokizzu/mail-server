@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -70,9 +70,9 @@ pub static VERSION_PUBLIC: &str = "1.0.0";
 
 pub static USER_AGENT: &str = "Stalwart/1.0.0";
 pub static DAEMON_NAME: &str = concat!("Stalwart v", env!("CARGO_PKG_VERSION"),);
-pub static PROD_ID: &str = "-//Stalwart Labs Ltd.//Stalwart Server//EN";
+pub static PROD_ID: &str = "-//Stalwart Labs LLC//Stalwart Server//EN";
 
-pub const DATABASE_SCHEMA_VERSION: u32 = 1;
+pub const DATABASE_SCHEMA_VERSION: u32 = 2;
 
 pub const LONG_1D_SLUMBER: Duration = Duration::from_secs(60 * 60 * 24);
 pub const LONG_1Y_SLUMBER: Duration = Duration::from_secs(60 * 60 * 24 * 365);
@@ -151,6 +151,7 @@ pub struct Caches {
     pub files: Cache<u32, CacheSwap<DavResources>>,
     pub contacts: Cache<u32, CacheSwap<DavResources>>,
     pub events: Cache<u32, CacheSwap<DavResources>>,
+    pub scheduling: Cache<u32, CacheSwap<DavResources>>,
 
     pub bayes: CacheWithTtl<TokenHash, Weights>,
 
@@ -293,6 +294,9 @@ pub enum DavResourceMetadata {
         names: TinyVec<[DavName; 2]>,
         start: i64,
         duration: u32,
+    },
+    CalendarScheduling {
+        names: TinyVec<[DavName; 2]>,
     },
     AddressBook {
         name: String,
@@ -455,6 +459,7 @@ impl Default for Caches {
             files: Cache::new(1024, 10 * 1024 * 1024),
             contacts: Cache::new(1024, 10 * 1024 * 1024),
             events: Cache::new(1024, 10 * 1024 * 1024),
+            scheduling: Cache::new(1024, 10 * 1024 * 1024),
             bayes: CacheWithTtl::new(1024, 10 * 1024 * 1024),
             dns_rbl: CacheWithTtl::new(1024, 10 * 1024 * 1024),
             dns_txt: CacheWithTtl::new(1024, 10 * 1024 * 1024),
@@ -630,6 +635,8 @@ impl DavResources {
     }
 }
 
+const SCHEDULE_INBOX_ID: u32 = u32::MAX - 1;
+
 impl DavResource {
     pub fn is_child_of(&self, parent_id: u32) -> bool {
         match &self.data {
@@ -640,6 +647,9 @@ impl DavResource {
             DavResourceMetadata::ContactCard { names } => {
                 names.iter().any(|name| name.parent_id == parent_id)
             }
+            DavResourceMetadata::CalendarScheduling { names } => {
+                names.is_empty() && parent_id == SCHEDULE_INBOX_ID
+            }
             _ => false,
         }
     }
@@ -648,6 +658,9 @@ impl DavResource {
         match &self.data {
             DavResourceMetadata::CalendarEvent { names, .. } => Some(names.as_slice()),
             DavResourceMetadata::ContactCard { names } => Some(names.as_slice()),
+            DavResourceMetadata::CalendarScheduling { names } if !names.is_empty() => {
+                Some(names.as_slice())
+            }
             _ => None,
         }
     }
@@ -657,6 +670,13 @@ impl DavResource {
             DavResourceMetadata::File { name, .. } => Some(name.as_str()),
             DavResourceMetadata::Calendar { name, .. } => Some(name.as_str()),
             DavResourceMetadata::AddressBook { name, .. } => Some(name.as_str()),
+            DavResourceMetadata::CalendarScheduling { names } if names.is_empty() => {
+                Some(if self.document_id == SCHEDULE_INBOX_ID {
+                    "inbox"
+                } else {
+                    "outbox"
+                })
+            }
             _ => None,
         }
     }
@@ -691,6 +711,10 @@ impl DavResource {
                 DavResourceMetadata::ContactCard { names: a, .. },
                 DavResourceMetadata::ContactCard { names: b, .. },
             ) => a != b,
+            (
+                DavResourceMetadata::CalendarScheduling { names: a, .. },
+                DavResourceMetadata::CalendarScheduling { names: b, .. },
+            ) => a != b,
             _ => unreachable!(),
         }
     }
@@ -715,6 +739,7 @@ impl DavResource {
         match &self.data {
             DavResourceMetadata::File { size, .. } => size.is_none(),
             DavResourceMetadata::Calendar { .. } | DavResourceMetadata::AddressBook { .. } => true,
+            DavResourceMetadata::CalendarScheduling { names } => names.is_empty(),
             _ => false,
         }
     }

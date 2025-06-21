@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -80,7 +80,7 @@ pub fn enable_logging() {
 }
 
 pub const TEST_USERS: &[(&str, &str, &str, &str)] = &[
-    ("admin", "secret1", "Superuser", "admin@example,com"),
+    ("admin", "secret", "Superuser", "admin@example.com"),
     ("john", "secret2", "John Doe", "jdoe@example.com"),
     (
         "jane",
@@ -88,6 +88,6 @@ pub const TEST_USERS: &[(&str, &str, &str, &str)] = &[
         "Jane Doe-Smith",
         "jane.smith@example.com",
     ),
-    ("bill", "secret4", "Bill Foobar", "bill@example,com"),
-    ("mike", "secret5", "Mike Noquota", "mike@example,com"),
+    ("bill", "secret4", "Bill Foobar", "bill@example.com"),
+    ("mike", "secret5", "Mike Noquota", "mike@example.com"),
 ];

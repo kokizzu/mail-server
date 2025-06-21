@@ -1,14 +1,17 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
 
-use crate::{DavResourceName, DestroyArchive};
+use crate::{
+    DavResourceName, DestroyArchive, RFC_3986,
+    calendar::{ArchivedCalendarScheduling, CalendarScheduling},
+    scheduling::{ItipMessages, event_cancel::itip_cancel},
+};
 use calcard::common::timezone::Tz;
 use common::{Server, auth::AccessToken, storage::index::ObjectIndexBuilder};
 use jmap_proto::types::collection::{Collection, VanishedCollection};
-use percent_encoding::NON_ALPHANUMERIC;
 use store::{
     U16_LEN, U64_LEN,
     write::{Archive, BatchBuilder, TaskQueueClass, ValueClass, key::KeySerializer, now},
@@ -144,6 +147,34 @@ impl Calendar {
     }
 }
 
+impl CalendarScheduling {
+    pub fn insert<'x>(
+        self,
+        access_token: &AccessToken,
+        account_id: u32,
+        document_id: u32,
+        batch: &'x mut BatchBuilder,
+    ) -> trc::Result<&'x mut BatchBuilder> {
+        // Build event
+        let mut event = self;
+        let now = now() as i64;
+        event.modified = now;
+        event.created = now;
+
+        // Prepare write batch
+        batch
+            .with_account_id(account_id)
+            .with_collection(Collection::CalendarScheduling)
+            .create_document(document_id)
+            .custom(
+                ObjectIndexBuilder::<(), _>::new()
+                    .with_changes(event)
+                    .with_tenant_id(access_token),
+            )
+            .map(|batch| batch.commit_point())
+    }
+}
+
 impl DestroyArchive<Archive<&ArchivedCalendar>> {
     #[allow(clippy::too_many_arguments)]
     pub async fn delete_with_events(
@@ -154,6 +185,7 @@ impl DestroyArchive<Archive<&ArchivedCalendar>> {
         document_id: u32,
         children_ids: Vec<u32>,
         delete_path: Option<String>,
+        send_itip: bool,
         batch: &mut BatchBuilder,
     ) -> trc::Result<()> {
         // Process deletions
@@ -174,6 +206,7 @@ impl DestroyArchive<Archive<&ArchivedCalendar>> {
                     document_id,
                     calendar_id,
                     None,
+                    send_itip,
                     batch,
                 )?;
             }
@@ -212,6 +245,7 @@ impl DestroyArchive<Archive<&ArchivedCalendar>> {
 }
 
 impl DestroyArchive<Archive<&ArchivedCalendarEvent>> {
+    #[allow(clippy::too_many_arguments)]
     pub fn delete(
         self,
         access_token: &AccessToken,
@@ -219,6 +253,7 @@ impl DestroyArchive<Archive<&ArchivedCalendarEvent>> {
         document_id: u32,
         calendar_id: u32,
         delete_path: Option<String>,
+        send_itip: bool,
         batch: &mut BatchBuilder,
     ) -> trc::Result<()> {
         let event = self.0;
@@ -256,6 +291,21 @@ impl DestroyArchive<Archive<&ArchivedCalendarEvent>> {
                     next_alarm.delete_task(batch);
                 }
 
+                // Scheduling
+                if send_itip && event.inner.schedule_tag.is_some() {
+                    let event = event
+                        .deserialize::<CalendarEvent>()
+                        .caused_by(trc::location!())?;
+
+                    if let Ok(messages) =
+                        itip_cancel(&event.data.event, access_token.emails.as_slice())
+                    {
+                        ItipMessages::new(vec![messages])
+                            .queue(batch)
+                            .caused_by(trc::location!())?;
+                    }
+                }
+
                 batch
                     .custom(
                         ObjectIndexBuilder::<_, ()>::new()
@@ -271,6 +321,32 @@ impl DestroyArchive<Archive<&ArchivedCalendarEvent>> {
 
             batch.commit_point();
         }
+
+        Ok(())
+    }
+}
+
+impl DestroyArchive<Archive<&ArchivedCalendarScheduling>> {
+    #[allow(clippy::too_many_arguments)]
+    pub fn delete(
+        self,
+        access_token: &AccessToken,
+        account_id: u32,
+        document_id: u32,
+        batch: &mut BatchBuilder,
+    ) -> trc::Result<()> {
+        // Delete event
+        batch
+            .with_account_id(account_id)
+            .with_collection(Collection::CalendarScheduling)
+            .delete_document(document_id)
+            .custom(
+                ObjectIndexBuilder::<_, ()>::new()
+                    .with_tenant_id(access_token)
+                    .with_current(self.0),
+            )
+            .caused_by(trc::location!())?
+            .commit_point();
 
         Ok(())
     }
@@ -325,7 +401,7 @@ impl ArchivedCalendarEvent {
                     "webcal://{}{}/{}/{}/{}",
                     server.core.network.server_name,
                     DavResourceName::Cal.base_path(),
-                    percent_encoding::utf8_percent_encode(&access_token.name, NON_ALPHANUMERIC),
+                    percent_encoding::utf8_percent_encode(&access_token.name, RFC_3986),
                     calendar.name,
                     event_name.name
                 ));

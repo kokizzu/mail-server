@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -88,6 +88,7 @@ impl CalendarGetRequestHandler for Server {
 
         // Validate headers
         let etag = event_.etag();
+        let schedule_tag = event.schedule_tag.as_ref().map(|tag| tag.to_native());
         self.validate_headers(
             access_token,
             headers,
@@ -107,6 +108,7 @@ impl CalendarGetRequestHandler for Server {
         let response = HttpResponse::new(StatusCode::OK)
             .with_content_type("text/calendar; charset=utf-8")
             .with_etag(etag)
+            .with_schedule_tag_opt(schedule_tag)
             .with_last_modified(Rfc1123DateTime::new(i64::from(event.modified)).to_string());
 
         let ical = event.data.event.to_string();

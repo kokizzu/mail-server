@@ -1,19 +1,18 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
 
-use std::{borrow::Cow, fmt::Write, future::Future};
-
+use crate::auth::oauth::FormData;
 use chrono::Utc;
 use common::{
     KV_RATE_LIMIT_CONTACT, Server,
     config::network::{ContactForm, FieldOrDefault},
     ip_to_bytes, psl,
 };
-
 use email::message::delivery::{IngestMessage, LocalDeliveryStatus, MailDelivery};
+use http_proto::*;
 use hyper::StatusCode;
 use mail_auth::common::cache::NoCache;
 use mail_builder::{
@@ -25,6 +24,7 @@ use mail_builder::{
     mime::make_boundary,
 };
 use serde_json::json;
+use std::{borrow::Cow, fmt::Write, future::Future};
 use store::{
     SerializeInfallible,
     write::{BatchBuilder, BlobOp, now},
@@ -32,10 +32,6 @@ use store::{
 use trc::AddContext;
 use utils::BlobHash;
 use x509_parser::nom::AsBytes;
-
-use crate::auth::oauth::FormData;
-
-use http_proto::*;
 
 pub trait FormHandler: Sync + Send {
     fn handle_contact_form(
@@ -202,6 +198,7 @@ impl FormHandler for Server {
             for result in self
                 .deliver_message(IngestMessage {
                     sender_address: from_email,
+                    sender_authenticated: false,
                     recipients: form.rcpt_to.clone(),
                     message_blob,
                     message_size,

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -359,5 +359,13 @@ impl ArchivedDeadProperty {
 impl PropertyUpdate {
     pub fn has_changes(&self) -> bool {
         !self.set.is_empty() || !self.remove.is_empty()
+    }
+}
+
+impl FreeBusyQuery {
+    pub fn new(start: i64, end: i64) -> Self {
+        FreeBusyQuery {
+            range: Some(TimeRange { start, end }),
+        }
     }
 }

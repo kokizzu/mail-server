@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -308,6 +308,22 @@ impl ValueClass {
                     .write(document_id)
                     .write(*event_id)
                     .write(*alarm_id),
+                TaskQueueClass::SendImip { due, is_payload } => {
+                    if !*is_payload {
+                        serializer
+                            .write(*due)
+                            .write(account_id)
+                            .write(4u8)
+                            .write(document_id)
+                    } else {
+                        serializer
+                            .write(u64::MAX)
+                            .write(account_id)
+                            .write(5u8)
+                            .write(document_id)
+                            .write(*due)
+                    }
+                }
             },
             ValueClass::Blob(op) => match op {
                 BlobOp::Reserve { hash, until } => serializer
@@ -581,6 +597,13 @@ impl ValueClass {
                     (BLOB_HASH_LEN + U64_LEN * 2) + 1
                 }
                 TaskQueueClass::SendAlarm { .. } => U64_LEN + (U32_LEN * 3) + 1,
+                TaskQueueClass::SendImip { is_payload, .. } => {
+                    if *is_payload {
+                        (U64_LEN * 2) + (U32_LEN * 2) + 1
+                    } else {
+                        U64_LEN + (U32_LEN * 2) + 1
+                    }
+                }
             },
             ValueClass::Queue(q) => match q {
                 QueueClass::Message(_) => U64_LEN,

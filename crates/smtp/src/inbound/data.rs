@@ -1,14 +1,20 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
 
-use std::{
-    borrow::Cow,
-    time::{Duration, Instant, SystemTime},
+use super::{ArcSeal, AuthResult, DkimSign};
+use crate::{
+    core::{Session, SessionAddress, State},
+    inbound::milter::Modification,
+    queue::{
+        self, DMARC_AUTHENTICATED, Message, MessageSource, QueueEnvelope, Schedule,
+        quota::HasQueueQuota,
+    },
+    reporting::analysis::AnalyzeReport,
+    scripts::ScriptResult,
 };
-
 use common::{
     config::{
         smtp::{auth::VerifyStrategy, session::Stage},
@@ -18,7 +24,6 @@ use common::{
     psl,
     scripts::ScriptModification,
 };
-
 use mail_auth::{
     AuthenticatedMessage, AuthenticationResults, DkimResult, DmarcResult, ReceivedSpf,
     common::{headers::HeaderWriter, verify::VerifySignature},
@@ -30,19 +35,13 @@ use sieve::runtime::Variable;
 use smtp_proto::{
     MAIL_BY_RETURN, RCPT_NOTIFY_DELAY, RCPT_NOTIFY_FAILURE, RCPT_NOTIFY_NEVER, RCPT_NOTIFY_SUCCESS,
 };
+use std::{
+    borrow::Cow,
+    time::{Duration, Instant, SystemTime},
+};
 use store::write::now;
 use trc::SmtpEvent;
 use utils::config::Rate;
-
-use crate::{
-    core::{Session, SessionAddress, State},
-    inbound::milter::Modification,
-    queue::{self, Message, MessageSource, QueueEnvelope, Schedule, quota::HasQueueQuota},
-    reporting::analysis::AnalyzeReport,
-    scripts::ScriptResult,
-};
-
-use super::{ArcSeal, AuthResult, DkimSign};
 
 impl<T: SessionStream> Session<T> {
     pub async fn queue_message(&mut self) -> Cow<'static, [u8]> {
@@ -670,6 +669,11 @@ impl<T: SessionStream> Session<T> {
             } else {
                 MessageSource::Authenticated
             };
+            if self.is_authenticated()
+                || dmarc_result.is_some_and(|result| result == DmarcResult::Pass)
+            {
+                message.flags |= DMARC_AUTHENTICATED;
+            }
             if message
                 .queue(
                     Some(&headers),

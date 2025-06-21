@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -11,8 +11,7 @@ pub mod mkcol;
 pub mod multistatus;
 pub mod property;
 pub mod propstat;
-
-use std::fmt::{Display, Write};
+pub mod schedule;
 
 use crate::schema::{
     property::{Comp, ResourceType, SupportedCollation},
@@ -20,6 +19,7 @@ use crate::schema::{
     response::{Href, List, Location, ResponseDescription, Status, SyncToken},
     Namespaces,
 };
+use std::fmt::{Display, Write};
 
 trait XmlEscape {
     fn write_escaped_to(&self, out: &mut impl Write) -> std::fmt::Result;
@@ -151,6 +151,8 @@ impl Display for ResourceType {
             ResourceType::Principal => write!(f, "<D:principal/>"),
             ResourceType::AddressBook => write!(f, "<B:addressbook/>"),
             ResourceType::Calendar => write!(f, "<A:calendar/>"),
+            ResourceType::ScheduleInbox => write!(f, "<A:schedule-inbox/>"),
+            ResourceType::ScheduleOutbox => write!(f, "<A:schedule-outbox/>"),
         }
     }
 }
@@ -215,7 +217,7 @@ mod tests {
                 Ace, AclRestrictions, BaseCondition, ErrorResponse, GrantDeny, Href, List,
                 MkColResponse, MultiStatus, Principal, PrincipalSearchProperty,
                 PrincipalSearchPropertySet, PropResponse, PropStat, RequiredPrincipal, Resource,
-                Response, SupportedPrivilege,
+                Response, ScheduleResponse, ScheduleResponseItem, SupportedPrivilege,
             },
             Namespace,
         },
@@ -371,7 +373,7 @@ mod tests {
                         DavPropertyValue::new(WebDavProperty::GetETag, "\"fffff-abcd2\""),
                         DavPropertyValue::new(
                             CalDavProperty::CalendarData(Default::default()),
-                            ICalendar::parse(
+                            DavValue::CData(
                                 r#"BEGIN:VCALENDAR
 VERSION:2.0
 BEGIN:VEVENT
@@ -382,9 +384,9 @@ SUMMARY:Event #2 bis bis
 UID:00959BC664CA650E933C892C@example.com
 END:VEVENT
 END:VCALENDAR
-"#,
-                            )
-                            .unwrap(),
+"#
+                                .to_string(),
+                            ),
                         ),
                     ])],
                 ),
@@ -394,7 +396,7 @@ END:VCALENDAR
                         DavPropertyValue::new(WebDavProperty::GetETag, "\"fffff-abcd3\""),
                         DavPropertyValue::new(
                             CalDavProperty::CalendarData(Default::default()),
-                            ICalendar::parse(
+                            DavValue::CData(
                                 r#"BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//Example Corp.//CalDAV Client//EN
@@ -405,9 +407,9 @@ SUMMARY:Event #3
 UID:DC6C50A017428C5216A2F1CD@example.com
 END:VEVENT
 END:VCALENDAR
-"#,
-                            )
-                            .unwrap(),
+"#
+                                .to_string(),
+                            ),
                         ),
                     ])],
                 ),
@@ -429,7 +431,7 @@ END:VCALENDAR
                     DavPropertyValue::new(WebDavProperty::GetETag, "\"23ba4d-ff11fb\""),
                     DavPropertyValue::new(
                         CardDavProperty::AddressData(Default::default()),
-                        VCard::parse(
+                        DavValue::CData(
                             r#"BEGIN:VCARD
 VERSION:3.0
 NICKNAME:me
@@ -437,9 +439,9 @@ UID:34222-232@example.com
 FN:Cyrus Daboo
 EMAIL:daboo@example.com
 END:VCARD
-"#,
-                        )
-                        .unwrap(),
+"#
+                            .to_string(),
+                        ),
                     ),
                 ])],
             )])
@@ -639,6 +641,27 @@ END:VCARD
                     ),
                 ])],
             )])
+            .to_string(),
+            // 020.xml
+            ScheduleResponse {
+                items: List(vec![
+                    ScheduleResponseItem {
+                        recipient: Href("mailto:wilfredo@example.com".to_string()),
+                        request_status: "2.0;Success".into(),
+                        calendar_data: Some("BEGIN:VCALENDAR".to_string()),
+                    },
+                    ScheduleResponseItem {
+                        recipient: Href("mailto:bernard@example.net".to_string()),
+                        request_status: "2.0;Success".into(),
+                        calendar_data: Some("END:VCALENDAR".to_string()),
+                    },
+                    ScheduleResponseItem {
+                        recipient: Href("mailto:mike@example.org".to_string()),
+                        request_status: "3.7;Invalid calendar user".into(),
+                        calendar_data: None,
+                    },
+                ]),
+            }
             .to_string(),
         ]
         .into_iter()

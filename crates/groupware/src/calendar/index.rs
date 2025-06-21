@@ -1,8 +1,10 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
+
+use crate::calendar::{ArchivedCalendarScheduling, CalendarScheduling};
 
 use super::{
     ArchivedCalendar, ArchivedCalendarEvent, ArchivedCalendarPreferences, ArchivedDefaultAlert,
@@ -110,6 +112,40 @@ impl IndexableObject for &ArchivedCalendarEvent {
 impl IndexableAndSerializableObject for CalendarEvent {
     fn is_versioned() -> bool {
         true
+    }
+}
+
+impl IndexableObject for CalendarScheduling {
+    fn index_values(&self) -> impl Iterator<Item = IndexValue<'_>> {
+        [
+            IndexValue::Quota { used: self.size },
+            IndexValue::LogItem {
+                sync_collection: SyncCollection::CalendarScheduling.into(),
+                prefix: None,
+            },
+        ]
+        .into_iter()
+    }
+}
+
+impl IndexableObject for &ArchivedCalendarScheduling {
+    fn index_values(&self) -> impl Iterator<Item = IndexValue<'_>> {
+        [
+            IndexValue::Quota {
+                used: self.size.to_native(),
+            },
+            IndexValue::LogItem {
+                sync_collection: SyncCollection::CalendarScheduling.into(),
+                prefix: None,
+            },
+        ]
+        .into_iter()
+    }
+}
+
+impl IndexableAndSerializableObject for CalendarScheduling {
+    fn is_versioned() -> bool {
+        false
     }
 }
 

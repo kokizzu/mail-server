@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -27,7 +27,7 @@ use mail_builder::{
 use mail_parser::decoders::html::html_to_text;
 use smtp::core::{Session, SessionData};
 use smtp_proto::{MailFrom, RcptTo};
-use std::{str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc, time::Duration};
 use store::write::{BatchBuilder, now};
 use trc::{AddContext, TaskQueueEvent};
 use utils::{sanitize_email, template::Variables};
@@ -423,6 +423,7 @@ async fn send_alarm(
         }
 
         // RCPT TO
+        session.params.rcpt_errors_wait = Duration::from_secs(0);
         let _ = session
             .handle_rcpt_to(RcptTo {
                 address: rcpt_to,

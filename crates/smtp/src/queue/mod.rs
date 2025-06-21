@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -122,6 +122,7 @@ pub struct Recipient {
 }
 
 pub const FROM_REPORT: u64 = 1 << 32;
+pub const DMARC_AUTHENTICATED: u64 = 2 << 32;
 
 pub const RCPT_DSN_SENT: u64 = 1 << 32;
 pub const RCPT_STATUS_CHANGED: u64 = 2 << 32;

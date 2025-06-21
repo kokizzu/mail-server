@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -28,6 +28,7 @@ use crate::{
         uri::DavUriResource,
     },
     file::DavFileResource,
+    fix_percent_encoding,
 };
 
 use super::assert_is_unique_uid;
@@ -60,9 +61,11 @@ impl CardUpdateRequestHandler for Server {
             .fetch_dav_resources(access_token, account_id, SyncCollection::AddressBook)
             .await
             .caused_by(trc::location!())?;
-        let resource_name = resource
-            .resource
-            .ok_or(DavError::Code(StatusCode::CONFLICT))?;
+        let resource_name = fix_percent_encoding(
+            resource
+                .resource
+                .ok_or(DavError::Code(StatusCode::CONFLICT))?,
+        );
 
         if bytes.len() > self.core.groupware.max_vcard_size {
             return Err(DavError::Condition(DavErrorCondition::new(
@@ -71,23 +74,29 @@ impl CardUpdateRequestHandler for Server {
             )));
         }
         let vcard_raw = std::str::from_utf8(&bytes).map_err(|_| {
-            DavError::Condition(DavErrorCondition::new(
-                StatusCode::PRECONDITION_FAILED,
-                CardCondition::SupportedAddressData,
-            ))
+            DavError::Condition(
+                DavErrorCondition::new(
+                    StatusCode::PRECONDITION_FAILED,
+                    CardCondition::SupportedAddressData,
+                )
+                .with_details("The request body is not valid UTF-8."),
+            )
         })?;
 
         let vcard = match Parser::new(vcard_raw).strict().entry() {
             Entry::VCard(vcard) => vcard,
             _ => {
-                return Err(DavError::Condition(DavErrorCondition::new(
-                    StatusCode::PRECONDITION_FAILED,
-                    CardCondition::SupportedAddressData,
-                )));
+                return Err(DavError::Condition(
+                    DavErrorCondition::new(
+                        StatusCode::PRECONDITION_FAILED,
+                        CardCondition::SupportedAddressData,
+                    )
+                    .with_details("Failed to parse vCard data."),
+                ));
             }
         };
 
-        if let Some(resource) = resources.by_path(resource_name) {
+        if let Some(resource) = resources.by_path(resource_name.as_ref()) {
             if resource.is_container() {
                 return Err(DavError::Code(StatusCode::METHOD_NOT_ALLOWED));
             }
@@ -121,7 +130,7 @@ impl CardUpdateRequestHandler for Server {
                         collection: Collection::ContactCard,
                         document_id: Some(document_id),
                         etag: card.etag().into(),
-                        path: resource_name,
+                        path: resource_name.as_ref(),
                         ..Default::default()
                     }],
                     Default::default(),
@@ -184,7 +193,7 @@ impl CardUpdateRequestHandler for Server {
             self.commit_batch(batch).await.caused_by(trc::location!())?;
 
             Ok(HttpResponse::new(StatusCode::NO_CONTENT).with_etag_opt(etag))
-        } else if let Some((Some(parent), name)) = resources.map_parent(resource_name) {
+        } else if let Some((Some(parent), name)) = resources.map_parent(resource_name.as_ref()) {
             if !parent.is_container() {
                 return Err(DavError::Code(StatusCode::METHOD_NOT_ALLOWED));
             }
@@ -208,7 +217,7 @@ impl CardUpdateRequestHandler for Server {
                     account_id,
                     collection: resource.collection,
                     document_id: Some(u32::MAX),
-                    path: resource_name,
+                    path: resource_name.as_ref(),
                     ..Default::default()
                 }],
                 Default::default(),
