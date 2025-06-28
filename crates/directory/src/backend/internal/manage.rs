@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -260,7 +260,7 @@ impl ManageDirectory for Store {
         let mut valid_domains: AHashSet<String> = AHashSet::new();
 
         // SPDX-SnippetBegin
-        // SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+        // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
         // SPDX-License-Identifier: LicenseRef-SEL
 
         // Validate tenant
@@ -316,7 +316,7 @@ impl ManageDirectory for Store {
         let mut principal_create = Principal::new(0, principal_set.typ());
 
         // SPDX-SnippetBegin
-        // SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+        // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
         // SPDX-License-Identifier: LicenseRef-SEL
 
         // Obtain tenant id, only if no default tenant is provided
@@ -377,6 +377,9 @@ impl ManageDirectory for Store {
             .unwrap_or_default();
         if let Some(picture) = principal_set.take_str(PrincipalField::Picture) {
             principal_create.data.push(PrincipalData::Picture(picture));
+        }
+        if let Some(picture) = principal_set.take_str(PrincipalField::Locale) {
+            principal_create.data.push(PrincipalData::Locale(picture));
         }
         if let Some(urls) = principal_set.take_str_array(PrincipalField::Urls) {
             principal_create.data.push(PrincipalData::Urls(urls));
@@ -641,7 +644,7 @@ impl ManageDirectory for Store {
         batch.with_account_id(u32::MAX);
 
         // SPDX-SnippetBegin
-        // SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+        // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
         // SPDX-License-Identifier: LicenseRef-SEL
 
         // Make sure tenant has no data
@@ -924,7 +927,7 @@ impl ManageDirectory for Store {
         let mut used_quota: Option<i64> = None;
 
         // SPDX-SnippetBegin
-        // SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+        // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
         // SPDX-License-Identifier: LicenseRef-SEL
 
         // Obtain used quota
@@ -1026,7 +1029,7 @@ impl ManageDirectory for Store {
                 }
 
                 // SPDX-SnippetBegin
-                // SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+                // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
                 // SPDX-License-Identifier: LicenseRef-SEL
                 #[cfg(feature = "enterprise")]
                 (
@@ -1149,13 +1152,29 @@ impl ManageDirectory for Store {
                 }
                 (
                     PrincipalAction::Set,
-                    PrincipalField::Description | PrincipalField::Picture,
+                    PrincipalField::Description,
                     PrincipalValue::String(value),
                 ) => {
                     if !value.is_empty() {
                         principal.description = Some(value);
                     } else {
                         principal.description = None;
+                    }
+                }
+                (PrincipalAction::Set, PrincipalField::Picture, PrincipalValue::String(value)) => {
+                    principal
+                        .data
+                        .retain(|v| !matches!(v, PrincipalData::Picture(_)));
+                    if !value.is_empty() {
+                        principal.data.push(PrincipalData::Picture(value));
+                    }
+                }
+                (PrincipalAction::Set, PrincipalField::Locale, PrincipalValue::String(value)) => {
+                    principal
+                        .data
+                        .retain(|v| !matches!(v, PrincipalData::Locale(_)));
+                    if !value.is_empty() {
+                        principal.data.push(PrincipalData::Locale(value));
                     }
                 }
                 (PrincipalAction::Set, PrincipalField::Quota, PrincipalValue::Integer(quota))
@@ -2184,6 +2203,11 @@ impl ManageDirectory for Store {
                         result.set(PrincipalField::Picture, compact_string);
                     }
                 }
+                PrincipalData::Locale(compact_string) => {
+                    if fields.is_empty() || fields.contains(&PrincipalField::Locale) {
+                        result.set(PrincipalField::Locale, compact_string);
+                    }
+                }
                 PrincipalData::ExternalMembers(compact_strings) => {
                     if fields.is_empty() || fields.contains(&PrincipalField::ExternalMembers) {
                         result.set(PrincipalField::ExternalMembers, compact_strings);
@@ -2267,7 +2291,7 @@ impl ManageDirectory for Store {
         }
 
         // SPDX-SnippetBegin
-        // SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+        // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
         // SPDX-License-Identifier: LicenseRef-SEL
 
         // Map tenant name

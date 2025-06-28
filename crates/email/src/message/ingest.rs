@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -17,12 +17,12 @@ use crate::{
         metadata::MessageData,
     },
 };
-use common::{
-    IDX_EMAIL, Server,
-    auth::{AccessToken, ResourceToken},
-    storage::index::ObjectIndexBuilder,
-};
+use common::{IDX_EMAIL, Server, auth::AccessToken, storage::index::ObjectIndexBuilder};
 use directory::Permission;
+use groupware::{
+    calendar::itip::{ItipIngest, ItipIngestError},
+    scheduling::{ItipError, ItipMessages},
+};
 use jmap_proto::types::{
     blob::BlobId,
     collection::{Collection, SyncCollection},
@@ -32,7 +32,7 @@ use jmap_proto::types::{
     value::{Object, Value},
 };
 use mail_parser::{
-    Header, HeaderName, HeaderValue, Message, MessageParser, PartType,
+    Header, HeaderName, HeaderValue, Message, MessageParser, MimeHeaders, PartType,
     parsers::fields::thread::thread_name,
 };
 use spam_filter::{
@@ -67,7 +67,7 @@ pub struct IngestedEmail {
 pub struct IngestEmail<'x> {
     pub raw_message: &'x [u8],
     pub message: Option<Message<'x>>,
-    pub resource: ResourceToken,
+    pub access_token: &'x AccessToken,
     pub mailbox_ids: Vec<u32>,
     pub keywords: Vec<Keyword>,
     pub received_at: Option<u64>,
@@ -79,7 +79,10 @@ pub struct IngestEmail<'x> {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum IngestSource<'x> {
-    Smtp { deliver_to: &'x str },
+    Smtp {
+        deliver_to: &'x str,
+        is_sender_authenticated: bool,
+    },
     Jmap,
     Imap,
     Restore,
@@ -118,10 +121,11 @@ impl EmailIngest for Server {
     async fn email_ingest(&self, mut params: IngestEmail<'_>) -> trc::Result<IngestedEmail> {
         // Check quota
         let start_time = Instant::now();
-        let account_id = params.resource.account_id;
-        let tenant_id = params.resource.tenant.map(|t| t.id);
+        let account_id = params.access_token.primary_id;
+        let tenant_id = params.access_token.tenant.map(|t| t.id);
         let mut raw_message_len = params.raw_message.len() as u64;
-        self.has_available_quota(&params.resource, raw_message_len)
+        let resource_token = params.access_token.as_resource_token();
+        self.has_available_quota(&resource_token, raw_message_len)
             .await
             .caused_by(trc::location!())?;
 
@@ -137,8 +141,12 @@ impl EmailIngest for Server {
         let mut train_spam = None;
         let mut extra_headers = String::new();
         let mut extra_headers_parsed = Vec::new();
+        let mut itip_messages = Vec::new();
         match params.source {
-            IngestSource::Smtp { deliver_to } => {
+            IngestSource::Smtp {
+                deliver_to,
+                is_sender_authenticated,
+            } => {
                 // Add delivered to header
                 if self.core.smtp.session.data.add_delivered_to {
                     extra_headers = format!("Delivered-To: {deliver_to}\r\n");
@@ -204,17 +212,19 @@ impl EmailIngest for Server {
                             .and_then(|s| s.address())
                             .and_then(sanitize_email)
                         {
-                            if !self
-                                .store()
-                                .filter(
-                                    account_id,
-                                    Collection::ContactCard,
-                                    vec![Filter::eq(IDX_EMAIL, sender.into_bytes())],
-                                )
-                                .await
-                                .caused_by(trc::location!())?
-                                .results
-                                .is_empty()
+                            if sender != deliver_to
+                                && is_sender_authenticated
+                                && !self
+                                    .store()
+                                    .filter(
+                                        account_id,
+                                        Collection::ContactCard,
+                                        vec![Filter::eq(IDX_EMAIL, sender.into_bytes())],
+                                    )
+                                    .await
+                                    .caused_by(trc::location!())?
+                                    .results
+                                    .is_empty()
                             {
                                 is_spam = false;
                                 if self
@@ -286,6 +296,96 @@ impl EmailIngest for Server {
                     if is_spam {
                         params.mailbox_ids[0] = JUNK_ID;
                         params.keywords.push(Keyword::Junk);
+                    }
+                }
+
+                // iMIP processing
+                if self.core.groupware.itip_enabled
+                    && params
+                        .access_token
+                        .has_permission(Permission::CalendarSchedulingReceive)
+                    && is_sender_authenticated
+                    && !is_spam
+                {
+                    let mut sender = None;
+                    for part in &message.parts {
+                        if part.content_type().is_some_and(|ct| {
+                            ct.ctype().eq_ignore_ascii_case("text")
+                                && ct
+                                    .subtype()
+                                    .is_some_and(|st| st.eq_ignore_ascii_case("calendar"))
+                                && ct.has_attribute("method")
+                        }) {
+                            if let Some(itip_message) = part.text_contents() {
+                                if itip_message.len()
+                                    < self.core.groupware.itip_inbound_max_ical_size
+                                {
+                                    if let Some(sender) = sender.get_or_insert_with(|| {
+                                        message
+                                            .from()
+                                            .and_then(|s| s.first())
+                                            .and_then(|s| s.address())
+                                            .and_then(sanitize_email)
+                                    }) {
+                                        match self
+                                            .itip_ingest(
+                                                params.access_token,
+                                                &resource_token,
+                                                sender,
+                                                itip_message,
+                                            )
+                                            .await
+                                        {
+                                            Ok(message) => {
+                                                if let Some(message) = message {
+                                                    itip_messages.push(message);
+                                                }
+                                                trc::event!(
+                                                    Calendar(
+                                                        trc::CalendarEvent::ItipMessageReceived
+                                                    ),
+                                                    SpanId = params.session_id,
+                                                    From = sender.to_string(),
+                                                    AccountId = account_id,
+                                                );
+                                            }
+                                            Err(ItipIngestError::Message(itip_error)) => {
+                                                match itip_error {
+                                                    ItipError::NothingToSend
+                                                    | ItipError::OtherSchedulingAgent => (),
+                                                    err => {
+                                                        trc::event!(
+                                                            Calendar(trc::CalendarEvent::ItipMessageError),
+                                                            SpanId = params.session_id,
+                                                            From = sender.to_string(),
+                                                            AccountId = account_id,
+                                                            Details = err.to_string(),
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            Err(ItipIngestError::Internal(err)) => {
+                                                trc::error!(err.caused_by(trc::location!()));
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    trc::event!(
+                                        Calendar(trc::CalendarEvent::ItipMessageError),
+                                        SpanId = params.session_id,
+                                        From = message
+                                            .from()
+                                            .and_then(|a| a.first())
+                                            .and_then(|a| a.address())
+                                            .map(|a| a.to_string()),
+                                        AccountId = account_id,
+                                        Details = "iMIP message too large",
+                                        Limit = self.core.groupware.itip_inbound_max_ical_size,
+                                        Size = itip_message.len(),
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -570,6 +670,13 @@ impl EmailIngest for Server {
                 }),
                 vec![],
             );
+        }
+
+        // Add iTIP responses to batch
+        if !itip_messages.is_empty() {
+            ItipMessages::new(itip_messages)
+                .queue(&mut batch)
+                .caused_by(trc::location!())?;
         }
 
         // Insert and obtain ids

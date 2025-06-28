@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: LicenseRef-SEL
  *
@@ -210,7 +210,8 @@ impl Enterprise {
             spam_filter_llm: SpamFilterLlmConfig::parse(config, &ai_apis),
             ai_apis,
             template_calendar_alarm: None,
-            template_calendar_invite: None,
+            template_scheduling_email: None,
+            template_scheduling_web: None,
         };
 
         // Parse templates
@@ -220,8 +221,12 @@ impl Enterprise {
                 &mut enterprise.template_calendar_alarm,
             ),
             (
-                "calendar.scheduling.template",
-                &mut enterprise.template_calendar_invite,
+                "calendar.scheduling.template.email",
+                &mut enterprise.template_scheduling_email,
+            ),
+            (
+                "calendar.scheduling.template.web",
+                &mut enterprise.template_scheduling_web,
             ),
         ] {
             if let Some(template) = config.value(key) {

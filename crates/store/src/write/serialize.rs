@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -554,5 +554,14 @@ impl Deserialize for () {
 impl<T> From<Value<'static>> for Archive<T> {
     fn from(_: Value<'static>) -> Self {
         unimplemented!()
+    }
+}
+
+impl Default for Archive<AlignedBytes> {
+    fn default() -> Self {
+        Archive {
+            version: ArchiveVersion::Unversioned,
+            inner: AlignedBytes::Aligned(AlignedVec::new()),
+        }
     }
 }

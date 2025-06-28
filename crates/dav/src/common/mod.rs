@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -20,7 +20,10 @@ use dav_proto::{
     },
 };
 use groupware::{
-    calendar::{ArchivedCalendar, ArchivedCalendarEvent, Calendar, CalendarEvent},
+    calendar::{
+        ArchivedCalendar, ArchivedCalendarEvent, ArchivedCalendarScheduling, Calendar,
+        CalendarEvent, CalendarScheduling,
+    },
     contact::{AddressBook, ArchivedAddressBook, ArchivedContactCard, ContactCard},
     file::{ArchivedFileNode, FileNode},
 };
@@ -72,6 +75,10 @@ pub(crate) enum DavQueryResource<'x> {
         parent_collection: Collection,
         items: Vec<PropFindItem>,
     },
+    Discovery {
+        parent_collection: Collection,
+        account_ids: Vec<u32>,
+    },
     #[default]
     None,
 }
@@ -92,7 +99,6 @@ pub(crate) enum DavQueryFilter {
 
 pub(crate) trait ETag {
     fn etag(&self) -> String;
-    //fn ctag(&self) -> String;
 }
 
 pub(crate) trait ExtractETag {
@@ -103,10 +109,6 @@ impl<T> ETag for Archive<T> {
     fn etag(&self) -> String {
         format!("\"{}\"", self.version.hash().unwrap_or_default())
     }
-
-    /*fn ctag(&self) -> String {
-        format!("\"{}\"", self.version.change_id().unwrap_or_default())
-    }*/
 }
 
 impl ExtractETag for BatchBuilder {
@@ -136,7 +138,9 @@ pub(crate) trait DavCollection {
 impl DavCollection for Collection {
     fn namespace(&self) -> Namespace {
         match self {
-            Collection::Calendar | Collection::CalendarEvent => Namespace::CalDav,
+            Collection::Calendar | Collection::CalendarEvent | Collection::CalendarScheduling => {
+                Namespace::CalDav
+            }
             Collection::AddressBook | Collection::ContactCard => Namespace::CardDav,
             _ => Namespace::Dav,
         }
@@ -299,6 +303,29 @@ impl<'x> DavQuery<'x> {
         }
     }
 
+    pub fn discovery(
+        propfind: PropFind,
+        account_ids: Vec<u32>,
+        collection: Collection,
+        headers: &RequestHeaders<'x>,
+    ) -> Self {
+        Self {
+            resource: DavQueryResource::Discovery {
+                parent_collection: collection,
+                account_ids,
+            },
+            propfind,
+            depth: 0,
+            ret: headers.ret,
+            depth_no_root: headers.depth_no_root,
+            uri: headers.uri,
+            sync_type: Default::default(),
+            limit: Default::default(),
+            max_vcard_version: headers.max_vcard_version,
+            expand: false,
+        }
+    }
+
     pub fn is_minimal(&self) -> bool {
         self.ret == Return::Minimal
     }
@@ -307,6 +334,8 @@ impl<'x> DavQuery<'x> {
 pub(crate) enum ArchivedResource<'x> {
     Calendar(Archive<&'x ArchivedCalendar>),
     CalendarEvent(Archive<&'x ArchivedCalendarEvent>),
+    CalendarScheduling(Archive<&'x ArchivedCalendarScheduling>),
+    CalendarSchedulingCollection(bool),
     AddressBook(Archive<&'x ArchivedAddressBook>),
     ContactCard(Archive<&'x ArchivedContactCard>),
     FileNode(Archive<&'x ArchivedFileNode>),
@@ -324,6 +353,9 @@ impl<'x> ArchivedResource<'x> {
             Collection::CalendarEvent => archive
                 .to_unarchived::<CalendarEvent>()
                 .map(ArchivedResource::CalendarEvent),
+            Collection::CalendarScheduling => archive
+                .to_unarchived::<CalendarScheduling>()
+                .map(ArchivedResource::CalendarScheduling),
             Collection::AddressBook => archive
                 .to_unarchived::<AddressBook>()
                 .map(ArchivedResource::AddressBook),
@@ -348,33 +380,37 @@ impl<'x> ArchivedResource<'x> {
 
     pub fn created(&self) -> i64 {
         match self {
-            ArchivedResource::Calendar(archive) => archive.inner.created,
-            ArchivedResource::CalendarEvent(archive) => archive.inner.created,
-            ArchivedResource::AddressBook(archive) => archive.inner.created,
-            ArchivedResource::ContactCard(archive) => archive.inner.created,
-            ArchivedResource::FileNode(archive) => archive.inner.created,
+            ArchivedResource::Calendar(archive) => archive.inner.created.to_native(),
+            ArchivedResource::CalendarEvent(archive) => archive.inner.created.to_native(),
+            ArchivedResource::AddressBook(archive) => archive.inner.created.to_native(),
+            ArchivedResource::ContactCard(archive) => archive.inner.created.to_native(),
+            ArchivedResource::FileNode(archive) => archive.inner.created.to_native(),
+            ArchivedResource::CalendarScheduling(archive) => archive.inner.created.to_native(),
+            ArchivedResource::CalendarSchedulingCollection(_) => 1634515200,
         }
-        .to_native()
     }
 
     pub fn modified(&self) -> i64 {
         match self {
-            ArchivedResource::Calendar(archive) => archive.inner.modified,
-            ArchivedResource::CalendarEvent(archive) => archive.inner.modified,
-            ArchivedResource::AddressBook(archive) => archive.inner.modified,
-            ArchivedResource::ContactCard(archive) => archive.inner.modified,
-            ArchivedResource::FileNode(archive) => archive.inner.modified,
+            ArchivedResource::Calendar(archive) => archive.inner.modified.to_native(),
+            ArchivedResource::CalendarEvent(archive) => archive.inner.modified.to_native(),
+            ArchivedResource::AddressBook(archive) => archive.inner.modified.to_native(),
+            ArchivedResource::ContactCard(archive) => archive.inner.modified.to_native(),
+            ArchivedResource::FileNode(archive) => archive.inner.modified.to_native(),
+            ArchivedResource::CalendarScheduling(archive) => archive.inner.modified.to_native(),
+            ArchivedResource::CalendarSchedulingCollection(_) => 1634515200,
         }
-        .to_native()
     }
 
-    pub fn dead_properties(&self) -> &ArchivedDeadProperty {
+    pub fn dead_properties(&self) -> Option<&ArchivedDeadProperty> {
         match self {
-            ArchivedResource::Calendar(archive) => &archive.inner.dead_properties,
-            ArchivedResource::CalendarEvent(archive) => &archive.inner.dead_properties,
-            ArchivedResource::AddressBook(archive) => &archive.inner.dead_properties,
-            ArchivedResource::ContactCard(archive) => &archive.inner.dead_properties,
-            ArchivedResource::FileNode(archive) => &archive.inner.dead_properties,
+            ArchivedResource::Calendar(archive) => Some(&archive.inner.dead_properties),
+            ArchivedResource::CalendarEvent(archive) => Some(&archive.inner.dead_properties),
+            ArchivedResource::AddressBook(archive) => Some(&archive.inner.dead_properties),
+            ArchivedResource::ContactCard(archive) => Some(&archive.inner.dead_properties),
+            ArchivedResource::FileNode(archive) => Some(&archive.inner.dead_properties),
+            ArchivedResource::CalendarScheduling(_)
+            | ArchivedResource::CalendarSchedulingCollection(_) => None,
         }
     }
 
@@ -384,8 +420,11 @@ impl<'x> ArchivedResource<'x> {
                 archive.inner.file.as_ref().map(|f| f.size.to_native())
             }
             ArchivedResource::CalendarEvent(archive) => archive.inner.size.to_native().into(),
+            ArchivedResource::CalendarScheduling(archive) => archive.inner.size.to_native().into(),
             ArchivedResource::ContactCard(archive) => archive.inner.size.to_native().into(),
-            ArchivedResource::AddressBook(_) | ArchivedResource::Calendar(_) => None,
+            ArchivedResource::AddressBook(_)
+            | ArchivedResource::Calendar(_)
+            | ArchivedResource::CalendarSchedulingCollection(_) => None,
         }
     }
 
@@ -396,9 +435,13 @@ impl<'x> ArchivedResource<'x> {
                 .file
                 .as_ref()
                 .and_then(|f| f.media_type.as_deref()),
-            ArchivedResource::CalendarEvent(_) => "text/calendar".into(),
+            ArchivedResource::CalendarEvent(_) | ArchivedResource::CalendarScheduling(_) => {
+                "text/calendar".into()
+            }
             ArchivedResource::ContactCard(_) => "text/vcard".into(),
-            ArchivedResource::AddressBook(_) | ArchivedResource::Calendar(_) => None,
+            ArchivedResource::AddressBook(_)
+            | ArchivedResource::Calendar(_)
+            | ArchivedResource::CalendarSchedulingCollection(_) => None,
         }
     }
 
@@ -411,6 +454,8 @@ impl<'x> ArchivedResource<'x> {
             ArchivedResource::AddressBook(archive) => archive.inner.display_name.as_deref(),
             ArchivedResource::ContactCard(archive) => archive.inner.display_name.as_deref(),
             ArchivedResource::FileNode(archive) => archive.inner.display_name.as_deref(),
+            ArchivedResource::CalendarScheduling(_)
+            | ArchivedResource::CalendarSchedulingCollection(_) => None,
         }
     }
 
@@ -441,6 +486,12 @@ impl<'x> ArchivedResource<'x> {
                 ReportSet::PrincipalMatch,
             ]
             .into(),
+            ArchivedResource::CalendarSchedulingCollection(_) => vec![
+                ReportSet::SyncCollection,
+                ReportSet::CalendarQuery,
+                ReportSet::CalendarMultiGet,
+            ]
+            .into(),
             _ => None,
         }
     }
@@ -455,6 +506,12 @@ impl<'x> ArchivedResource<'x> {
             }
             ArchivedResource::FileNode(archive) if archive.inner.file.is_none() => {
                 vec![ResourceType::Collection].into()
+            }
+            ArchivedResource::CalendarSchedulingCollection(true) => {
+                vec![ResourceType::Collection, ResourceType::ScheduleInbox].into()
+            }
+            ArchivedResource::CalendarSchedulingCollection(false) => {
+                vec![ResourceType::Collection, ResourceType::ScheduleOutbox].into()
             }
             _ => None,
         }

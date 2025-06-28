@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -1247,6 +1247,9 @@ pub const ALL_DAV_PROPERTIES: &[DavProperty] = &[
     DavProperty::CalDav(CalDavProperty::MaxAttendeesPerInstance),
     DavProperty::CalDav(CalDavProperty::TimezoneServiceSet),
     DavProperty::CalDav(CalDavProperty::TimezoneId),
+    DavProperty::CalDav(CalDavProperty::ScheduleDefaultCalendarURL),
+    DavProperty::CalDav(CalDavProperty::ScheduleTag),
+    DavProperty::CalDav(CalDavProperty::ScheduleCalendarTransp),
     DavProperty::Principal(PrincipalProperty::AlternateURISet),
     DavProperty::Principal(PrincipalProperty::PrincipalURL),
     DavProperty::Principal(PrincipalProperty::GroupMemberSet),
@@ -1254,6 +1257,10 @@ pub const ALL_DAV_PROPERTIES: &[DavProperty] = &[
     DavProperty::Principal(PrincipalProperty::CalendarHomeSet),
     DavProperty::Principal(PrincipalProperty::AddressbookHomeSet),
     DavProperty::Principal(PrincipalProperty::PrincipalAddress),
+    DavProperty::Principal(PrincipalProperty::CalendarUserAddressSet),
+    DavProperty::Principal(PrincipalProperty::CalendarUserType),
+    DavProperty::Principal(PrincipalProperty::ScheduleInboxURL),
+    DavProperty::Principal(PrincipalProperty::ScheduleOutboxURL),
 ];
 
 fn serialize_status_code<S>(status_code: &StatusCode, serializer: S) -> Result<S::Ok, S::Error>

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -17,7 +17,7 @@ use jmap_client::client::Credentials;
 use modules::{
     UnwrapResult,
     cli::{Cli, Client, Commands},
-    is_localhost,
+    host, is_localhost,
 };
 use reqwest::{Method, StatusCode, header::AUTHORIZATION};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -191,6 +191,7 @@ impl Client {
         jmap_client::client::Client::new()
             .credentials(self.credentials)
             .accept_invalid_certs(is_localhost(&self.url))
+            .follow_redirects([host(&self.url).expect("Invalid host").to_owned()])
             .timeout(Duration::from_secs(self.timeout.unwrap_or(60)))
             .connect(&self.url)
             .await

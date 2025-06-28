@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -128,6 +128,13 @@ impl Caches {
                 config,
                 "contacts",
                 MB_10,
+                (std::mem::size_of::<DavResources>() + (500 * std::mem::size_of::<DavResource>()))
+                    as u64,
+            ),
+            scheduling: Cache::from_config(
+                config,
+                "scheduling",
+                MB_1,
                 (std::mem::size_of::<DavResources>() + (500 * std::mem::size_of::<DavResource>()))
                     as u64,
             ),

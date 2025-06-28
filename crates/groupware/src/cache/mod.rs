@@ -1,19 +1,23 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
 
 use crate::{
+    DavResourceName, RFC_3986,
+    cache::calcard::{build_scheduling_resources, path_from_scheduling, resource_from_scheduling},
     calendar::{Calendar, CalendarEvent, CalendarPreferences},
     contact::{AddressBook, ContactCard},
     file::FileNode,
 };
+use ahash::AHashSet;
 use calcard::{
     build_calcard_resources, build_simple_hierarchy, resource_from_addressbook,
     resource_from_calendar, resource_from_card, resource_from_event,
 };
 use common::{CacheSwap, DavResource, DavResources, Server, auth::AccessToken};
+use directory::backend::internal::manage::ManageDirectory;
 use file::{build_file_resources, build_nested_hierarchy, resource_from_file};
 use jmap_proto::types::collection::{Collection, SyncCollection};
 use std::{sync::Arc, time::Instant};
@@ -40,13 +44,22 @@ pub trait GroupwareCache: Sync + Send {
         &self,
         access_token: &AccessToken,
         account_id: u32,
-    ) -> impl Future<Output = trc::Result<()>> + Send;
+        account_name: &str,
+    ) -> impl Future<Output = trc::Result<Option<u32>>> + Send;
 
     fn create_default_calendar(
         &self,
         access_token: &AccessToken,
         account_id: u32,
-    ) -> impl Future<Output = trc::Result<()>> + Send;
+        account_name: &str,
+    ) -> impl Future<Output = trc::Result<Option<u32>>> + Send;
+
+    fn get_or_create_default_calendar(
+        &self,
+        access_token: &AccessToken,
+        account_id: u32,
+        account_name: &str,
+    ) -> impl Future<Output = trc::Result<Option<u32>>> + Send;
 
     fn cached_dav_resources(
         &self,
@@ -66,6 +79,7 @@ impl GroupwareCache for Server {
             SyncCollection::Calendar => &self.inner.cache.events,
             SyncCollection::AddressBook => &self.inner.cache.contacts,
             SyncCollection::FileNode => &self.inner.cache.files,
+            SyncCollection::CalendarScheduling => &self.inner.cache.scheduling,
             _ => unreachable!(),
         };
         let cache_ = match cache_store.get_value_or_guard_async(&account_id).await {
@@ -165,113 +179,136 @@ impl GroupwareCache for Server {
             return Ok(cache);
         }
 
-        let mut updated_resources = AHashMap::with_capacity(8);
-        let has_no_children = collection == SyncCollection::FileNode;
-        let num_changes = changes.changes.len();
-
-        for change in changes.changes {
-            match change {
-                Change::InsertItem(id) | Change::UpdateItem(id) => {
-                    let document_id = id as u32;
-                    if let Some(archive) = self
-                        .get_archive(account_id, collection.collection(false), document_id)
-                        .await
-                        .caused_by(trc::location!())?
-                    {
-                        updated_resources.insert(
-                            (has_no_children, document_id),
-                            Some(resource_from_archive(
-                                archive,
-                                document_id,
-                                collection,
-                                false,
-                            )?),
-                        );
-                    } else {
-                        updated_resources.insert((has_no_children, document_id), None);
-                    }
-                }
-                Change::DeleteItem(id) => {
-                    updated_resources.insert((has_no_children, id as u32), None);
-                }
-                Change::InsertContainer(id) | Change::UpdateContainer(id) => {
-                    let document_id = id as u32;
-                    if let Some(archive) = self
-                        .get_archive(account_id, collection.collection(true), document_id)
-                        .await
-                        .caused_by(trc::location!())?
-                    {
-                        updated_resources.insert(
-                            (true, document_id),
-                            Some(resource_from_archive(
-                                archive,
-                                document_id,
-                                collection,
-                                true,
-                            )?),
-                        );
-                    } else {
-                        updated_resources.insert((true, document_id), None);
-                    }
-                }
-                Change::DeleteContainer(id) => {
-                    updated_resources.insert((true, id as u32), None);
-                }
-                Change::UpdateContainerProperty(_) => (),
-            }
-        }
-
-        let mut rebuild_hierarchy = false;
-        let mut resources = Vec::with_capacity(cache.resources.len());
-
-        for resource in &cache.resources {
-            let is_container = has_no_children || resource.is_container();
-            if let Some(updated_resource) =
-                updated_resources.remove(&(is_container, resource.document_id))
-            {
-                if let Some(updated_resource) = updated_resource {
-                    rebuild_hierarchy =
-                        rebuild_hierarchy || updated_resource.has_hierarchy_changes(resource);
-                    resources.push(updated_resource);
-                } else {
-                    // Deleted resource
-                    rebuild_hierarchy = true;
-                }
-            } else {
-                resources.push(resource.clone());
-            }
-        }
-
-        // Add new resources
-        for resource in updated_resources.into_values().flatten() {
-            resources.push(resource);
-            rebuild_hierarchy = true;
-        }
-
-        let cache = if rebuild_hierarchy {
-            let mut cache = DavResources {
-                base_path: cache.base_path.clone(),
-                paths: Default::default(),
-                resources,
-                item_change_id: changes.item_change_id.unwrap_or(cache.item_change_id),
-                container_change_id: changes
-                    .container_change_id
-                    .unwrap_or(cache.container_change_id),
-                highest_change_id: changes.to_change_id,
-                size: std::mem::size_of::<DavResources>() as u64,
-                update_lock: cache.update_lock.clone(),
-            };
-
-            if matches!(collection, SyncCollection::FileNode) {
-                build_nested_hierarchy(&mut cache);
-            } else {
-                build_simple_hierarchy(&mut cache);
-            }
-            cache
+        // Build base path
+        let base_path = if access_token.primary_id() == account_id {
+            format!(
+                "{}/{}/",
+                DavResourceName::from(collection).base_path(),
+                percent_encoding::utf8_percent_encode(&access_token.name, RFC_3986)
+            )
         } else {
+            let name = self
+                .store()
+                .get_principal_name(account_id)
+                .await
+                .caused_by(trc::location!())?
+                .unwrap_or_else(|| format!("_{account_id}"));
+            format!(
+                "{}/{}/",
+                DavResourceName::from(collection).base_path(),
+                percent_encoding::utf8_percent_encode(&name, RFC_3986)
+            )
+        };
+
+        let num_changes = changes.changes.len();
+        let cache = if !matches!(collection, SyncCollection::CalendarScheduling) {
+            let mut updated_resources = AHashMap::with_capacity(8);
+            let has_no_children = collection == SyncCollection::FileNode;
+
+            process_changes(
+                self,
+                account_id,
+                collection,
+                has_no_children,
+                &mut updated_resources,
+                changes.changes,
+            )
+            .await?;
+
+            let mut rebuild_hierarchy = false;
+            let mut resources = Vec::with_capacity(cache.resources.len());
+
+            for resource in &cache.resources {
+                let is_container = has_no_children || resource.is_container();
+                if let Some(updated_resource) =
+                    updated_resources.remove(&(is_container, resource.document_id))
+                {
+                    if let Some(updated_resource) = updated_resource {
+                        rebuild_hierarchy =
+                            rebuild_hierarchy || updated_resource.has_hierarchy_changes(resource);
+                        resources.push(updated_resource);
+                    } else {
+                        // Deleted resource
+                        rebuild_hierarchy = true;
+                    }
+                } else {
+                    resources.push(resource.clone());
+                }
+            }
+
+            // Add new resources
+            for resource in updated_resources.into_values().flatten() {
+                resources.push(resource);
+                rebuild_hierarchy = true;
+            }
+
+            if rebuild_hierarchy {
+                let mut cache = DavResources {
+                    base_path,
+                    paths: Default::default(),
+                    resources,
+                    item_change_id: changes.item_change_id.unwrap_or(cache.item_change_id),
+                    container_change_id: changes
+                        .container_change_id
+                        .unwrap_or(cache.container_change_id),
+                    highest_change_id: changes.to_change_id,
+                    size: std::mem::size_of::<DavResources>() as u64,
+                    update_lock: cache.update_lock.clone(),
+                };
+
+                if matches!(collection, SyncCollection::FileNode) {
+                    build_nested_hierarchy(&mut cache);
+                } else {
+                    build_simple_hierarchy(&mut cache);
+                }
+                cache
+            } else {
+                DavResources {
+                    base_path,
+                    paths: cache.paths.clone(),
+                    resources,
+                    item_change_id: changes.item_change_id.unwrap_or(cache.item_change_id),
+                    container_change_id: changes
+                        .container_change_id
+                        .unwrap_or(cache.container_change_id),
+                    highest_change_id: changes.to_change_id,
+                    size: cache.size,
+                    update_lock: cache.update_lock.clone(),
+                }
+            }
+        } else {
+            let mut delete_ids = AHashSet::with_capacity(changes.changes.len());
+            let mut resources = Vec::with_capacity(cache.resources.len());
+            let mut paths = AHashSet::with_capacity(cache.paths.len());
+
+            for change in changes.changes {
+                match change {
+                    Change::InsertItem(document_id) => {
+                        let document_id = document_id as u32;
+                        paths.insert(path_from_scheduling(document_id, resources.len(), false));
+                        resources.push(resource_from_scheduling(document_id, false));
+                    }
+                    Change::DeleteItem(document_id) => {
+                        delete_ids.insert(document_id as u32);
+                    }
+                    _ => {}
+                }
+            }
+
+            for resource in &cache.resources {
+                if !delete_ids.contains(&resource.document_id) {
+                    paths.insert(path_from_scheduling(
+                        resource.document_id,
+                        resources.len(),
+                        resource.is_container(),
+                    ));
+                    resources.push(resource.clone());
+                }
+            }
+
             DavResources {
-                base_path: cache.base_path.clone(),
-                paths: cache.paths.clone(),
+                base_path,
+                paths,
                 resources,
                 item_change_id: changes.item_change_id.unwrap_or(cache.item_change_id),
                 container_change_id: changes
@@ -303,7 +340,8 @@ impl GroupwareCache for Server {
         &self,
         access_token: &AccessToken,
         account_id: u32,
-    ) -> trc::Result<()> {
+        account_name: &str,
+    ) -> trc::Result<Option<u32>> {
         if let Some(name) = &self.core.groupware.default_addressbook_name {
             let mut batch = BatchBuilder::new();
             let document_id = self
@@ -312,27 +350,34 @@ impl GroupwareCache for Server {
                 .await?;
             AddressBook {
                 name: name.clone(),
-                display_name: self.core.groupware.default_addressbook_display_name.clone(),
+                display_name: self
+                    .core
+                    .groupware
+                    .default_addressbook_display_name
+                    .as_ref()
+                    .map(|display| format!("{display} ({account_name})")),
                 is_default: true,
                 ..Default::default()
             }
             .insert(access_token, account_id, document_id, &mut batch)?;
             self.commit_batch(batch).await?;
+            Ok(Some(document_id))
+        } else {
+            Ok(None)
         }
-
-        Ok(())
     }
 
     async fn create_default_calendar(
         &self,
         access_token: &AccessToken,
         account_id: u32,
-    ) -> trc::Result<()> {
+        account_name: &str,
+    ) -> trc::Result<Option<u32>> {
         if let Some(name) = &self.core.groupware.default_calendar_name {
             let mut batch = BatchBuilder::new();
             let document_id = self
                 .store()
-                .assign_document_ids(account_id, Collection::Calendar, 3)
+                .assign_document_ids(account_id, Collection::Calendar, 1)
                 .await?;
             Calendar {
                 name: name.clone(),
@@ -342,17 +387,39 @@ impl GroupwareCache for Server {
                         .core
                         .groupware
                         .default_calendar_display_name
-                        .clone()
-                        .unwrap_or_else(|| name.clone()),
+                        .as_ref()
+                        .map_or_else(
+                            || name.clone(),
+                            |display| format!("{display} ({account_name})",),
+                        ),
                     ..Default::default()
                 }],
                 ..Default::default()
             }
             .insert(access_token, account_id, document_id, &mut batch)?;
             self.commit_batch(batch).await?;
+            Ok(Some(document_id))
+        } else {
+            Ok(None)
         }
+    }
 
-        Ok(())
+    async fn get_or_create_default_calendar(
+        &self,
+        access_token: &AccessToken,
+        account_id: u32,
+        account_name: &str,
+    ) -> trc::Result<Option<u32>> {
+        match self
+            .get_document_ids(account_id, Collection::Calendar)
+            .await
+        {
+            Ok(Some(ids)) if !ids.is_empty() => Ok(ids.iter().next()),
+            _ => {
+                self.create_default_calendar(access_token, account_id, account_name)
+                    .await
+            }
+        }
     }
 
     fn cached_dav_resources(
@@ -369,6 +436,68 @@ impl GroupwareCache for Server {
         .get(&account_id)
         .map(|cache| cache.load_full())
     }
+}
+
+async fn process_changes(
+    server: &Server,
+    account_id: u32,
+    collection: SyncCollection,
+    has_no_children: bool,
+    updated_resources: &mut AHashMap<(bool, u32), Option<DavResource>>,
+    changes: Vec<Change>,
+) -> trc::Result<()> {
+    for change in changes {
+        match change {
+            Change::InsertItem(id) | Change::UpdateItem(id) => {
+                let document_id = id as u32;
+                if let Some(archive) = server
+                    .get_archive(account_id, collection.collection(false), document_id)
+                    .await
+                    .caused_by(trc::location!())?
+                {
+                    updated_resources.insert(
+                        (has_no_children, document_id),
+                        Some(resource_from_archive(
+                            archive,
+                            document_id,
+                            collection,
+                            false,
+                        )?),
+                    );
+                } else {
+                    updated_resources.insert((has_no_children, document_id), None);
+                }
+            }
+            Change::DeleteItem(id) => {
+                updated_resources.insert((has_no_children, id as u32), None);
+            }
+            Change::InsertContainer(id) | Change::UpdateContainer(id) => {
+                let document_id = id as u32;
+                if let Some(archive) = server
+                    .get_archive(account_id, collection.collection(true), document_id)
+                    .await
+                    .caused_by(trc::location!())?
+                {
+                    updated_resources.insert(
+                        (true, document_id),
+                        Some(resource_from_archive(
+                            archive,
+                            document_id,
+                            collection,
+                            true,
+                        )?),
+                    );
+                } else {
+                    updated_resources.insert((true, document_id), None);
+                }
+            }
+            Change::DeleteContainer(id) => {
+                updated_resources.insert((true, id as u32), None);
+            }
+            Change::UpdateContainerProperty(_) => (),
+        }
+    }
+    Ok(())
 }
 
 async fn full_cache_build(
@@ -404,6 +533,9 @@ async fn full_cache_build(
             .await
         }
         SyncCollection::FileNode => build_file_resources(server, account_id, update_lock).await,
+        SyncCollection::CalendarScheduling => {
+            build_scheduling_resources(server, account_id, update_lock).await
+        }
         _ => unreachable!(),
     }
     .map(Arc::new)

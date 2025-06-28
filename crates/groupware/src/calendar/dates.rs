@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -232,6 +232,26 @@ impl ArchivedCalendarEventData {
         } else {
             None
         }
+    }
+
+    pub fn event_range_start(&self) -> i64 {
+        self.base_offset.to_native() + self.base_time_utc.to_native() as i64
+    }
+
+    pub fn event_range_end(&self) -> i64 {
+        self.base_offset.to_native()
+            + self.base_time_utc.to_native() as i64
+            + self.duration.to_native() as i64
+    }
+}
+
+impl CalendarEventData {
+    pub fn event_range_start(&self) -> i64 {
+        self.base_offset + self.base_time_utc as i64
+    }
+
+    pub fn event_range_end(&self) -> i64 {
+        self.base_offset + self.base_time_utc as i64 + self.duration as i64
     }
 }
 

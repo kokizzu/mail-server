@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -36,11 +36,11 @@ pub enum Acl {
     CreateChild = 7,
     Administer = 8,
     Submit = 9,
-    ReadFreeBusy = 10,
-    ModifyItemsOwn = 11,
-    ModifyPrivateProperties = 12,
-    RSVP = 13,
-    Share = 14,
+    SchedulingReadFreeBusy = 10,
+    SchedulingInvite = 11,
+    SchedulingReply = 12,
+    ModifyItemsOwn = 13,
+    ModifyPrivateProperties = 14,
     None = 15,
 }
 
@@ -90,12 +90,12 @@ impl Acl {
             Acl::CreateChild => "createChild",
             Acl::Administer => "administer",
             Acl::Submit => "submit",
-            Acl::ReadFreeBusy => "readFreeBusy",
             Acl::ModifyItemsOwn => "modifyItemsOwn",
             Acl::ModifyPrivateProperties => "modifyPrivateProperties",
-            Acl::RSVP => "rsvp",
-            Acl::Share => "share",
             Acl::None => "",
+            Acl::SchedulingReadFreeBusy => "schedulingReadFreeBusy",
+            Acl::SchedulingInvite => "schedulingInvite",
+            Acl::SchedulingReply => "schedulingReply",
         }
     }
 }
@@ -144,6 +144,11 @@ impl From<u64> for Acl {
             7 => Acl::CreateChild,
             8 => Acl::Administer,
             9 => Acl::Submit,
+            10 => Acl::SchedulingReadFreeBusy,
+            11 => Acl::SchedulingInvite,
+            12 => Acl::SchedulingReply,
+            13 => Acl::ModifyItemsOwn,
+            14 => Acl::ModifyPrivateProperties,
             _ => Acl::None,
         }
     }

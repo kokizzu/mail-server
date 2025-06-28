@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -55,6 +55,15 @@ impl HttpResponse {
     pub fn with_etag_opt(self, etag: Option<String>) -> Self {
         if let Some(etag) = etag {
             self.with_etag(etag)
+        } else {
+            self
+        }
+    }
+
+    pub fn with_schedule_tag_opt(mut self, tag: Option<u32>) -> Self {
+        if let Some(tag) = tag {
+            self.builder = self.builder.header("Schedule-Tag", format!("\"{tag}\""));
+            self
         } else {
             self
         }

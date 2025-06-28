@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -73,7 +73,7 @@ impl Principal {
     }
 
     // SPDX-SnippetBegin
-    // SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+    // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
     // SPDX-License-Identifier: LicenseRef-SEL
     pub fn tenant(&self) -> Option<u32> {
         self.tenant
@@ -349,7 +349,7 @@ impl PrincipalSet {
     }
 
     // SPDX-SnippetBegin
-    // SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+    // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
     // SPDX-License-Identifier: LicenseRef-SEL
     pub fn tenant(&self) -> Option<u32> {
         self.get_int(PrincipalField::Tenant).map(|v| v as u32)
@@ -1095,7 +1095,8 @@ impl<'de> serde::Deserialize<'de> for PrincipalSet {
                         }
                         PrincipalField::Description
                         | PrincipalField::Tenant
-                        | PrincipalField::Picture => {
+                        | PrincipalField::Picture
+                        | PrincipalField::Locale => {
                             if let Some(v) = map.next_value::<Option<String>>()? {
                                 if v.len() <= MAX_STRING_LEN {
                                     PrincipalValue::String(v)
@@ -1408,11 +1409,13 @@ impl Permission {
                 | Permission::DavCalMultiGet
                 | Permission::DavCalFreeBusyQuery
                 | Permission::CalendarAlarms
+                | Permission::CalendarSchedulingSend
+                | Permission::CalendarSchedulingReceive
         )
     }
 
     // SPDX-SnippetBegin
-    // SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+    // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
     // SPDX-License-Identifier: LicenseRef-SEL
 
     pub const fn is_tenant_admin_permission(&self) -> bool {

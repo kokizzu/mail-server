@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -38,7 +38,7 @@ pub struct JmapConfig {
     pub mail_attachments_max_size: usize,
     pub mail_parse_max_items: usize,
     pub mail_max_size: usize,
-    pub mail_autoexpunge_after: Option<Duration>,
+    pub mail_autoexpunge_after: Option<u64>,
 
     pub sieve_max_script_name: usize,
     pub sieve_max_scripts: usize,
@@ -136,7 +136,7 @@ impl JmapConfig {
         {
             match SpecialUse::parse_value(&key) {
                 Ok(SpecialUse::Shared) => {
-                    if let Some(value) = config.value(&key) {
+                    if let Some(value) = config.value(("email.folders", key.as_str(), "name")) {
                         shared_folder = value.to_string();
                     }
                 }
@@ -286,6 +286,7 @@ impl JmapConfig {
             mail_parse_max_items: config.property("jmap.email.parse.max-items").unwrap_or(10),
             mail_autoexpunge_after: config
                 .property_or_default::<Option<Duration>>("email.auto-expunge", "30d")
+                .map(|d| d.map(|d| d.as_secs()))
                 .unwrap_or_default(),
             sieve_max_script_name: config
                 .property("sieve.untrusted.limits.name-length")

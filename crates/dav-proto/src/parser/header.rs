@@ -1,12 +1,11 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
 
-use calcard::vcard::VCardVersion;
-
 use crate::{Condition, Depth, If, RequestHeaders, ResourceState, Return, Timeout};
+use calcard::vcard::VCardVersion;
 
 impl<'x> RequestHeaders<'x> {
     pub fn new(uri: &'x str) -> Self {
@@ -99,6 +98,14 @@ impl<'x> RequestHeaders<'x> {
                         }
                     }
                 }
+                return true;
+            },
+            "If-Schedule-Tag-Match" => {
+                self.if_schedule_tag = value.trim().trim_matches('"').parse().ok();
+                return true;
+            },
+            "Schedule-Reply" => {
+                self.no_schedule_reply = value == "F";
                 return true;
             },
             _ => {}

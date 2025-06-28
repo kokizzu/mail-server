@@ -1,10 +1,8 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
-
-use std::str::FromStr;
 
 use super::query::CalendarQueryHandler;
 use crate::{DavError, calendar::query::is_resource_in_time_range, common::uri::DavUriResource};
@@ -18,7 +16,7 @@ use calcard::{
         ICalendarValue,
     },
 };
-use common::{PROD_ID, Server, auth::AccessToken};
+use common::{DavResourcePath, DavResources, PROD_ID, Server, auth::AccessToken};
 use dav_proto::{
     RequestHeaders,
     schema::{property::TimeRange, request::FreeBusyQuery},
@@ -30,6 +28,7 @@ use jmap_proto::types::{
     acl::Acl,
     collection::{Collection, SyncCollection},
 };
+use std::str::FromStr;
 use store::{
     ahash::AHashMap,
     write::{now, serialize::rkyv_deserialize},
@@ -43,6 +42,15 @@ pub(crate) trait CalendarFreebusyRequestHandler: Sync + Send {
         headers: &RequestHeaders<'_>,
         request: FreeBusyQuery,
     ) -> impl Future<Output = crate::Result<HttpResponse>> + Send;
+
+    fn build_freebusy_object(
+        &self,
+        access_token: &AccessToken,
+        request: FreeBusyQuery,
+        resources: &DavResources,
+        account_id: u32,
+        resource: DavResourcePath<'_>,
+    ) -> impl Future<Output = crate::Result<ICalendar>> + Send;
 }
 
 impl CalendarFreebusyRequestHandler for Server {
@@ -72,18 +80,39 @@ impl CalendarFreebusyRequestHandler for Server {
         if !resource.is_container() {
             return Err(DavError::Code(StatusCode::METHOD_NOT_ALLOWED));
         }
-        let default_tz = resource.resource.timezone().unwrap_or(Tz::UTC);
 
+        self.build_freebusy_object(access_token, request, &resources, account_id, resource)
+            .await
+            .map(|ical| {
+                HttpResponse::new(StatusCode::OK)
+                    .with_content_type("text/calendar; charset=utf-8")
+                    .with_text_body(ical.to_string())
+            })
+    }
+
+    async fn build_freebusy_object(
+        &self,
+        access_token: &AccessToken,
+        request: FreeBusyQuery,
+        resources: &DavResources,
+        account_id: u32,
+        resource: DavResourcePath<'_>,
+    ) -> crate::Result<ICalendar> {
         // Obtain shared ids
         let shared_ids = if !access_token.is_member(account_id) {
             resources
-                .shared_containers(access_token, [Acl::ReadItems, Acl::ReadFreeBusy], false)
+                .shared_containers(
+                    access_token,
+                    [Acl::ReadItems, Acl::SchedulingReadFreeBusy],
+                    false,
+                )
                 .into()
         } else {
             None
         };
 
         // Build FreeBusy component
+        let default_tz = resource.resource.timezone().unwrap_or(Tz::UTC);
         let mut entries = Vec::with_capacity(6);
         if let Some(range) = request.range {
             entries.push(ICalendarEntry {
@@ -241,7 +270,7 @@ impl CalendarFreebusyRequestHandler for Server {
         }
 
         // Build ICalendar
-        let ical = ICalendar {
+        Ok(ICalendar {
             components: vec![
                 ICalendarComponent {
                     component_type: ICalendarComponentType::VCalendar,
@@ -265,12 +294,7 @@ impl CalendarFreebusyRequestHandler for Server {
                     component_ids: vec![],
                 },
             ],
-        }
-        .to_string();
-
-        Ok(HttpResponse::new(StatusCode::OK)
-            .with_content_type("text/calendar; charset=utf-8")
-            .with_text_body(ical))
+        })
     }
 }
 

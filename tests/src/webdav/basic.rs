@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -17,8 +17,8 @@ pub async fn test(test: &WebDavTest) {
         .with_header(
             "dav",
             concat!(
-                "1, 2, 3, access-control, extended-mkcol, ",
-                "calendar-access, calendar-no-timezone, addressbook"
+                "1, 2, 3, access-control, extended-mkcol, calendar-access, ",
+                "calendar-auto-schedule, calendar-no-timezone, addressbook"
             ),
         )
         .with_header(

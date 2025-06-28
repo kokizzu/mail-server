@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -18,6 +18,7 @@ use dav_proto::{
     },
 };
 use directory::{QueryBy, Type, backend::internal::manage::ManageDirectory};
+use groupware::RFC_3986;
 use groupware::{cache::GroupwareCache, calendar::Calendar, contact::AddressBook, file::FileNode};
 use http_proto::HttpResponse;
 use hyper::StatusCode;
@@ -26,7 +27,6 @@ use jmap_proto::types::{
     collection::Collection,
     value::{AclGrant, ArchivedAclGrant},
 };
-use percent_encoding::NON_ALPHANUMERIC;
 use rkyv::vec::ArchivedVec;
 use store::{ahash::AHashSet, roaring::RoaringBitmap, write::BatchBuilder};
 use trc::AddContext;
@@ -339,9 +339,43 @@ impl DavAclHandler for Server {
                     Privilege::WriteAcl => {
                         acls.insert(Acl::Administer);
                     }
-                    Privilege::ReadFreeBusy => {
+                    Privilege::ReadFreeBusy
+                    | Privilege::ScheduleQueryFreeBusy
+                    | Privilege::ScheduleSendFreeBusy => {
                         if collection == Collection::Calendar {
-                            acls.insert(Acl::ReadFreeBusy);
+                            acls.insert(Acl::SchedulingReadFreeBusy);
+                        } else {
+                            return Err(DavError::Condition(DavErrorCondition::new(
+                                StatusCode::FORBIDDEN,
+                                BaseCondition::NotSupportedPrivilege,
+                            )));
+                        }
+                    }
+                    Privilege::ScheduleDeliver | Privilege::ScheduleSend => {
+                        if collection == Collection::Calendar {
+                            acls.insert(Acl::SchedulingReadFreeBusy);
+                            acls.insert(Acl::SchedulingInvite);
+                            acls.insert(Acl::SchedulingReply);
+                        } else {
+                            return Err(DavError::Condition(DavErrorCondition::new(
+                                StatusCode::FORBIDDEN,
+                                BaseCondition::NotSupportedPrivilege,
+                            )));
+                        }
+                    }
+                    Privilege::ScheduleDeliverInvite | Privilege::ScheduleSendInvite => {
+                        if collection == Collection::Calendar {
+                            acls.insert(Acl::SchedulingInvite);
+                        } else {
+                            return Err(DavError::Condition(DavErrorCondition::new(
+                                StatusCode::FORBIDDEN,
+                                BaseCondition::NotSupportedPrivilege,
+                            )));
+                        }
+                    }
+                    Privilege::ScheduleDeliverReply | Privilege::ScheduleSendReply => {
+                        if collection == Collection::Calendar {
+                            acls.insert(Acl::SchedulingReply);
                         } else {
                             return Err(DavError::Condition(DavErrorCondition::new(
                                 StatusCode::FORBIDDEN,
@@ -435,10 +469,7 @@ impl DavAclHandler for Server {
                     Principal::Href(Href(format!(
                         "{}/{}/",
                         DavResourceName::Principal.base_path(),
-                        percent_encoding::utf8_percent_encode(
-                            &grant_account_name,
-                            NON_ALPHANUMERIC
-                        ),
+                        percent_encoding::utf8_percent_encode(&grant_account_name, RFC_3986),
                     )))
                 };
 
@@ -527,7 +558,7 @@ pub(crate) fn current_user_privilege_set(acl_bitmap: Bitmap<Acl>) -> Vec<Privile
                 acls.insert(Privilege::ReadAcl);
                 acls.insert(Privilege::WriteAcl);
             }
-            Acl::ReadFreeBusy => {
+            Acl::SchedulingReadFreeBusy => {
                 acls.insert(Privilege::ReadFreeBusy);
             }
             _ => {}

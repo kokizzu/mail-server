@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -16,7 +16,7 @@ pub struct Template<T> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TemplateItem<T> {
     Static(String),
-    Variable(T),
+    Variable { name: T, escape: bool },
     If { variable: T, block_end: usize },
     ForEach { variable: T, block_end: usize },
 }
@@ -104,8 +104,10 @@ impl<T: FromStr + Eq + Hash + std::fmt::Debug> Template<T> {
                         }
                     }
                 } else {
-                    let var = T::from_str(var).map_err(|_| format!("Invalid variable: {}", var))?;
-                    items.push(TemplateItem::Variable(var));
+                    let (name, escape) = var.strip_prefix("!").map_or((var, true), |v| (v, false));
+                    let name =
+                        T::from_str(name).map_err(|_| format!("Invalid variable: {}", name))?;
+                    items.push(TemplateItem::Variable { name, escape });
                 }
             } else {
                 if !template.is_empty() {
@@ -135,9 +137,13 @@ impl<T: FromStr + Eq + Hash + std::fmt::Debug> Template<T> {
             let idx = idx + base_offset;
             match item {
                 TemplateItem::Static(s) => result.push_str(s),
-                TemplateItem::Variable(variable) => {
-                    if let Some(Variable::Single(variable)) = variables.items.get(variable) {
-                        html_escape(&mut result, variable.as_ref())
+                TemplateItem::Variable { name, escape } => {
+                    if let Some(Variable::Single(variable)) = variables.items.get(name) {
+                        if *escape {
+                            html_escape(&mut result, variable.as_ref())
+                        } else {
+                            result.push_str(variable.as_ref());
+                        }
                     }
                 }
                 TemplateItem::If {
@@ -156,12 +162,25 @@ impl<T: FromStr + Eq + Hash + std::fmt::Debug> Template<T> {
                     if let Some(Variable::Block(entries)) = variables.items.get(variable) {
                         let slice = &self.items[idx + 1..*block_end];
                         for entry in entries {
-                            for sub_item in slice {
+                            let mut slice = slice.iter();
+                            while let Some(sub_item) = slice.next() {
                                 match sub_item {
                                     TemplateItem::Static(s) => result.push_str(s),
-                                    TemplateItem::Variable(var) => {
-                                        if let Some(variable) = entry.get(var) {
-                                            html_escape(&mut result, variable.as_ref())
+                                    TemplateItem::Variable { name, escape } => {
+                                        if let Some(variable) = entry.get(name) {
+                                            if *escape {
+                                                html_escape(&mut result, variable.as_ref())
+                                            } else {
+                                                result.push_str(variable.as_ref());
+                                            }
+                                        }
+                                    }
+                                    TemplateItem::If {
+                                        variable,
+                                        block_end: start_pos,
+                                    } => {
+                                        if !entry.contains_key(variable) {
+                                            slice = self.items[*start_pos..*block_end].iter();
                                         }
                                     }
                                     _ => {}

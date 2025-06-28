@@ -1,10 +1,13 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
 
 #![warn(clippy::large_futures)]
+#![warn(clippy::cast_possible_truncation)]
+#![warn(clippy::cast_possible_wrap)]
+#![warn(clippy::cast_sign_loss)]
 
 use common::{config::server::ServerProtocol, core::BuildServer, manager::boot::BootManager};
 use http::HttpSessionManager;

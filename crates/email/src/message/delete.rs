@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -7,10 +7,10 @@
 use super::metadata::MessageData;
 use crate::{cache::MessageCacheFetch, mailbox::*, message::metadata::MessageMetadata};
 use common::{KV_LOCK_PURGE_ACCOUNT, Server, storage::index::ObjectIndexBuilder};
+use groupware::calendar::storage::ItipAutoExpunge;
 use jmap_proto::types::collection::VanishedCollection;
 use jmap_proto::types::{collection::Collection, property::Property};
 use std::future::Future;
-use std::time::Duration;
 use store::rand::prelude::SliceRandom;
 use store::write::key::DeserializeBigEndian;
 use store::write::now;
@@ -38,7 +38,7 @@ pub trait EmailDeletion: Sync + Send {
     fn emails_auto_expunge(
         &self,
         account_id: u32,
-        period: Duration,
+        hold_period: u64,
     ) -> impl Future<Output = trc::Result<()>> + Send;
 
     fn emails_purge_tombstoned(
@@ -136,10 +136,20 @@ impl EmailDeletion for Server {
         }
 
         // Auto-expunge deleted and junk messages
-        if let Some(period) = self.core.jmap.mail_autoexpunge_after {
-            if let Err(err) = self.emails_auto_expunge(account_id, period).await {
+        if let Some(hold_period) = self.core.jmap.mail_autoexpunge_after {
+            if let Err(err) = self.emails_auto_expunge(account_id, hold_period).await {
                 trc::error!(
-                    err.details("Failed to auto-expunge messages.")
+                    err.details("Failed to auto-expunge e-mail messages.")
+                        .account_id(account_id)
+                );
+            }
+        }
+
+        // Auto-expunge iMIP messages
+        if let Some(hold_period) = self.core.groupware.itip_inbox_auto_expunge {
+            if let Err(err) = self.itip_auto_expunge(account_id, hold_period).await {
+                trc::error!(
+                    err.details("Failed to auto-expunge iTIP messages.")
                         .account_id(account_id)
                 );
             }
@@ -173,7 +183,7 @@ impl EmailDeletion for Server {
         }
     }
 
-    async fn emails_auto_expunge(&self, account_id: u32, period: Duration) -> trc::Result<()> {
+    async fn emails_auto_expunge(&self, account_id: u32, hold_period: u64) -> trc::Result<()> {
         let trashed_ids = RoaringBitmap::from_iter(
             self.get_cached_messages(account_id)
                 .await
@@ -209,7 +219,7 @@ impl EmailDeletion for Server {
                         collection: Collection::Email.into(),
                         document_id: u32::MAX,
                         field: Property::ReceivedAt.into(),
-                        key: now().saturating_sub(period.as_secs()).serialize(),
+                        key: now().saturating_sub(hold_period).serialize(),
                     },
                 )
                 .no_values()
@@ -235,6 +245,7 @@ impl EmailDeletion for Server {
 
         trc::event!(
             Purge(trc::PurgeEvent::AutoExpunge),
+            Collection = Collection::Email.as_str(),
             AccountId = account_id,
             Total = destroy_ids.len(),
         );
@@ -320,7 +331,7 @@ impl EmailDeletion for Server {
                     .caused_by(trc::location!())?;
 
                 // SPDX-SnippetBegin
-                // SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+                // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
                 // SPDX-License-Identifier: LicenseRef-SEL
 
                 // Hold blob for undeletion

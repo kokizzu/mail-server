@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -194,6 +194,9 @@ impl DavProperty {
                     CalDavProperty::CalendarData(_) => "A:calendar-data",
                     CalDavProperty::TimezoneServiceSet => "A:timezone-service-set",
                     CalDavProperty::TimezoneId => "A:calendar-timezone-id",
+                    CalDavProperty::ScheduleDefaultCalendarURL => "A:schedule-default-calendar-URL",
+                    CalDavProperty::ScheduleTag => "A:schedule-tag",
+                    CalDavProperty::ScheduleCalendarTransp => "A:schedule-calendar-transp",
                 },
                 DavProperty::Principal(prop) => match prop {
                     PrincipalProperty::AlternateURISet => "D:alternate-URI-set",
@@ -203,6 +206,10 @@ impl DavProperty {
                     PrincipalProperty::CalendarHomeSet => "A:calendar-home-set",
                     PrincipalProperty::AddressbookHomeSet => "B:addressbook-home-set",
                     PrincipalProperty::PrincipalAddress => "B:principal-address",
+                    PrincipalProperty::CalendarUserAddressSet => "A:calendar-user-address-set",
+                    PrincipalProperty::CalendarUserType => "A:calendar-user-type",
+                    PrincipalProperty::ScheduleInboxURL => "A:schedule-inbox-URL",
+                    PrincipalProperty::ScheduleOutboxURL => "A:schedule-outbox-URL",
                 },
                 DavProperty::DeadProperty(dead) => {
                     return (dead.name.as_str(), dead.attrs.as_deref())
@@ -217,9 +224,14 @@ impl DavProperty {
             DavProperty::WebDav(WebDavProperty::GetCTag) => Namespace::CalendarServer,
             DavProperty::CardDav(_)
             | DavProperty::Principal(PrincipalProperty::AddressbookHomeSet) => Namespace::CardDav,
-            DavProperty::CalDav(_) | DavProperty::Principal(PrincipalProperty::CalendarHomeSet) => {
-                Namespace::CalDav
-            }
+            DavProperty::CalDav(_)
+            | DavProperty::Principal(
+                PrincipalProperty::CalendarHomeSet
+                | PrincipalProperty::CalendarUserAddressSet
+                | PrincipalProperty::CalendarUserType
+                | PrincipalProperty::ScheduleInboxURL
+                | PrincipalProperty::ScheduleOutboxURL,
+            ) => Namespace::CalDav,
             _ => Namespace::Dav,
         }
     }

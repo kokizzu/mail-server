@@ -1,10 +1,10 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use common::{
     Server,
@@ -604,6 +604,7 @@ impl EmailSubmissionSet for Server {
             // RCPT TO
             let mut responses = Vec::new();
             let mut has_success = false;
+            session.params.rcpt_errors_wait = Duration::from_secs(0);
             for rcpt in rcpt_to {
                 let addr = rcpt.address.clone();
                 let _ = session.handle_rcpt_to(rcpt).await;

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -26,11 +26,12 @@ use dav_proto::{
     xml_pretty_print,
 };
 use directory::Permission;
+use email::message::metadata::MessageMetadata;
 use groupware::{DavResourceName, cache::GroupwareCache};
 use http::HttpSessionManager;
 use hyper::{HeaderMap, Method, StatusCode, header::AUTHORIZATION};
 use imap::core::ImapSessionManager;
-use jmap_proto::types::collection::Collection;
+use jmap_proto::types::{collection::Collection, property::Property};
 use pop3::Pop3SessionManager;
 use quick_xml::Reader;
 use quick_xml::events::Event;
@@ -48,7 +49,9 @@ use utils::config::Config;
 pub mod acl;
 pub mod basic;
 pub mod cal_alarm;
+pub mod cal_itip;
 pub mod cal_query;
+pub mod cal_scheduling;
 pub mod card_query;
 pub mod copy_move;
 pub mod lock;
@@ -59,44 +62,55 @@ pub mod prop;
 pub mod put_get;
 pub mod sync;
 
-#[tokio::test]
-pub async fn webdav_tests() {
-    // Prepare settings
-    let start_time = Instant::now();
-    let delete = true;
-    let handle = init_webdav_tests(
-        &std::env::var("STORE")
-            .expect("Missing store type. Try running `STORE=<store_type> cargo test`"),
-        delete,
-    )
-    .await;
+#[test]
+fn webdav_tests() {
+    //test_build_itip_templates(&handle.server).await;
 
-    basic::test(&handle).await;
-    put_get::test(&handle).await;
-    mkcol::test(&handle).await;
-    copy_move::test(&handle).await;
-    prop::test(&handle).await;
-    multiget::test(&handle).await;
-    sync::test(&handle).await;
-    lock::test(&handle).await;
-    principals::test(&handle).await;
-    acl::test(&handle).await;
-    card_query::test(&handle).await;
-    cal_query::test(&handle).await;
-    cal_alarm::test(&handle).await;
+    tokio::runtime::Builder::new_multi_thread()
+        .thread_stack_size(8 * 1024 * 1024) // 8MB stack
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            // Prepare settings
+            let start_time = Instant::now();
+            let delete = true;
+            let handle = init_webdav_tests(
+                &std::env::var("STORE")
+                    .expect("Missing store type. Try running `STORE=<store_type> cargo test`"),
+                delete,
+            )
+            .await;
 
-    // Print elapsed time
-    let elapsed = start_time.elapsed();
-    println!(
-        "Elapsed: {}.{:03}s",
-        elapsed.as_secs(),
-        elapsed.subsec_millis()
-    );
+            basic::test(&handle).await;
+            put_get::test(&handle).await;
+            mkcol::test(&handle).await;
+            copy_move::test(&handle).await;
+            prop::test(&handle).await;
+            multiget::test(&handle).await;
+            sync::test(&handle).await;
+            lock::test(&handle).await;
+            principals::test(&handle).await;
+            acl::test(&handle).await;
+            card_query::test(&handle).await;
+            cal_query::test(&handle).await;
+            cal_alarm::test(&handle).await;
+            cal_itip::test();
+            cal_scheduling::test(&handle).await;
 
-    // Remove test data
-    if delete {
-        handle.temp_dir.delete();
-    }
+            // Print elapsed time
+            let elapsed = start_time.elapsed();
+            println!(
+                "Elapsed: {}.{:03}s",
+                elapsed.as_secs(),
+                elapsed.subsec_millis()
+            );
+
+            // Remove test data
+            if delete {
+                handle.temp_dir.delete();
+            }
+        });
 }
 
 #[allow(dead_code)]
@@ -988,6 +1002,36 @@ fn generate_random_name(length: usize) -> String {
         .collect()
 }
 
+impl WebDavTest {
+    pub async fn fetch_email(&self, account_id: u32, document_id: u32) -> Vec<u8> {
+        let metadata_ = self
+            .server
+            .get_archive_by_property(
+                account_id,
+                Collection::Email,
+                document_id,
+                Property::BodyStructure,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        self.server
+            .blob_store()
+            .get_blob(
+                metadata_
+                    .unarchive::<MessageMetadata>()
+                    .unwrap()
+                    .blob_hash
+                    .0
+                    .as_slice(),
+                0..usize::MAX,
+            )
+            .await
+            .unwrap()
+            .unwrap()
+    }
+}
+
 const SERVER: &str = r#"
 [server]
 hostname = "webdav.example.org"
@@ -1119,6 +1163,12 @@ anonymous = "100/1m"
 
 [calendar.alarms]
 minimum-interval = "1s"
+
+[calendar.scheduling.inbound]
+auto-add = true
+
+[dav.collection]
+assisted-discovery = false
 
 [store."auth"]
 type = "sqlite"

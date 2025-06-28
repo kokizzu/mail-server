@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -135,13 +135,10 @@ impl DavUriResource for Server {
                 .by_path(resource)
             {
                 Ok(Some(DocumentUri {
-                    collection: if resource.is_container() || uri.collection == Collection::FileNode
-                    {
+                    collection: if resource.is_container() {
                         uri.collection
-                    } else if uri.collection == Collection::Calendar {
-                        Collection::CalendarEvent
                     } else {
-                        Collection::ContactCard
+                        uri.collection.child_collection().unwrap_or(uri.collection)
                     },
                     account_id: uri.account_id,
                     resource: resource.document_id(),
@@ -181,11 +178,11 @@ impl OwnedUri<'_> {
     }
 }
 
-impl<A, R> UriResource<A, R> {
+/*impl<A, R> UriResource<A, R> {
     pub fn collection_path(&self) -> &'static str {
         DavResourceName::from(self.collection).collection_path()
     }
-}
+}*/
 
 impl Urn {
     pub fn try_extract_sync_id(token: &str) -> Option<&str> {

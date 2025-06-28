@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -70,9 +70,9 @@ pub static VERSION_PUBLIC: &str = "1.0.0";
 
 pub static USER_AGENT: &str = "Stalwart/1.0.0";
 pub static DAEMON_NAME: &str = concat!("Stalwart v", env!("CARGO_PKG_VERSION"),);
-pub static PROD_ID: &str = "-//Stalwart Labs Ltd.//Stalwart Server//EN";
+pub static PROD_ID: &str = "-//Stalwart Labs LLC//Stalwart Server//EN";
 
-pub const DATABASE_SCHEMA_VERSION: u32 = 1;
+pub const DATABASE_SCHEMA_VERSION: u32 = 2;
 
 pub const LONG_1D_SLUMBER: Duration = Duration::from_secs(60 * 60 * 24);
 pub const LONG_1Y_SLUMBER: Duration = Duration::from_secs(60 * 60 * 24 * 365);
@@ -109,6 +109,7 @@ pub const KV_SIEVE_ID: u8 = 26;
 
 pub const IDX_UID: u8 = 0;
 pub const IDX_EMAIL: u8 = 1;
+pub const IDX_CREATED: u8 = 2;
 
 #[derive(Clone)]
 pub struct Server {
@@ -151,6 +152,7 @@ pub struct Caches {
     pub files: Cache<u32, CacheSwap<DavResources>>,
     pub contacts: Cache<u32, CacheSwap<DavResources>>,
     pub events: Cache<u32, CacheSwap<DavResources>>,
+    pub scheduling: Cache<u32, CacheSwap<DavResources>>,
 
     pub bayes: CacheWithTtl<TokenHash, Weights>,
 
@@ -293,6 +295,9 @@ pub enum DavResourceMetadata {
         names: TinyVec<[DavName; 2]>,
         start: i64,
         duration: u32,
+    },
+    CalendarScheduling {
+        names: TinyVec<[DavName; 2]>,
     },
     AddressBook {
         name: String,
@@ -455,6 +460,7 @@ impl Default for Caches {
             files: Cache::new(1024, 10 * 1024 * 1024),
             contacts: Cache::new(1024, 10 * 1024 * 1024),
             events: Cache::new(1024, 10 * 1024 * 1024),
+            scheduling: Cache::new(1024, 10 * 1024 * 1024),
             bayes: CacheWithTtl::new(1024, 10 * 1024 * 1024),
             dns_rbl: CacheWithTtl::new(1024, 10 * 1024 * 1024),
             dns_txt: CacheWithTtl::new(1024, 10 * 1024 * 1024),
@@ -630,6 +636,8 @@ impl DavResources {
     }
 }
 
+const SCHEDULE_INBOX_ID: u32 = u32::MAX - 1;
+
 impl DavResource {
     pub fn is_child_of(&self, parent_id: u32) -> bool {
         match &self.data {
@@ -640,6 +648,9 @@ impl DavResource {
             DavResourceMetadata::ContactCard { names } => {
                 names.iter().any(|name| name.parent_id == parent_id)
             }
+            DavResourceMetadata::CalendarScheduling { names } => {
+                names.is_empty() && parent_id == SCHEDULE_INBOX_ID
+            }
             _ => false,
         }
     }
@@ -648,6 +659,9 @@ impl DavResource {
         match &self.data {
             DavResourceMetadata::CalendarEvent { names, .. } => Some(names.as_slice()),
             DavResourceMetadata::ContactCard { names } => Some(names.as_slice()),
+            DavResourceMetadata::CalendarScheduling { names } if !names.is_empty() => {
+                Some(names.as_slice())
+            }
             _ => None,
         }
     }
@@ -657,6 +671,13 @@ impl DavResource {
             DavResourceMetadata::File { name, .. } => Some(name.as_str()),
             DavResourceMetadata::Calendar { name, .. } => Some(name.as_str()),
             DavResourceMetadata::AddressBook { name, .. } => Some(name.as_str()),
+            DavResourceMetadata::CalendarScheduling { names } if names.is_empty() => {
+                Some(if self.document_id == SCHEDULE_INBOX_ID {
+                    "inbox"
+                } else {
+                    "outbox"
+                })
+            }
             _ => None,
         }
     }
@@ -691,6 +712,10 @@ impl DavResource {
                 DavResourceMetadata::ContactCard { names: a, .. },
                 DavResourceMetadata::ContactCard { names: b, .. },
             ) => a != b,
+            (
+                DavResourceMetadata::CalendarScheduling { names: a, .. },
+                DavResourceMetadata::CalendarScheduling { names: b, .. },
+            ) => a != b,
             _ => unreachable!(),
         }
     }
@@ -715,6 +740,7 @@ impl DavResource {
         match &self.data {
             DavResourceMetadata::File { size, .. } => size.is_none(),
             DavResourceMetadata::Calendar { .. } | DavResourceMetadata::AddressBook { .. } => true,
+            DavResourceMetadata::CalendarScheduling { names } => names.is_empty(),
             _ => false,
         }
     }
@@ -818,7 +844,7 @@ impl MailboxCache {
     }
 }
 
-pub const DEFAULT_LOGO: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" id="Layer_1" x="0" y="0" style="enable-background:new 0 0 680.5 252.1" version="1.1" viewBox="0 0 680.5 252.1">
+pub const DEFAULT_LOGO_RAW: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" id="Layer_1" x="0" y="0" style="enable-background:new 0 0 680.5 252.1" version="1.1" viewBox="0 0 680.5 252.1">
 <style>
  .st0{fill:#100e42}.st1{fill:#db2d54}
 </style>
@@ -827,3 +853,61 @@ pub const DEFAULT_LOGO: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" xml:sp
 <path d="M99.5 129.9v11l44.8 25.9h4.8l44.8-25.9v-11l-47.2 27.3zM187.3 166.8l6.6-3.8v-11l-25.7 14.8zM99.5 163l6.6 3.8h19.1L99.5 152z" class="st1"/>
 </svg>
 "#;
+
+pub const DEFAULT_LOGO_BASE64: &str =
+    "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
+AElFTkSuQmCC";

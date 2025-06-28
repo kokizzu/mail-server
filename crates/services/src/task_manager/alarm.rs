@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -11,13 +11,14 @@ use calcard::{
 };
 use chrono::{DateTime, Locale};
 use common::{
-    DEFAULT_LOGO, Server,
+    DEFAULT_LOGO_BASE64, Server,
+    auth::AccessToken,
     config::groupware::CalendarTemplateVariable,
     i18n,
     listener::{ServerInstance, stream::NullIo},
 };
 use directory::Permission;
-use groupware::calendar::{CalendarEvent, alarm::CalendarAlarm};
+use groupware::calendar::{ArchivedCalendarEvent, CalendarEvent, alarm::CalendarAlarm};
 use jmap_proto::types::collection::Collection;
 use mail_builder::{
     MessageBuilder,
@@ -27,7 +28,7 @@ use mail_builder::{
 use mail_parser::decoders::html::html_to_text;
 use smtp::core::{Session, SessionData};
 use smtp_proto::{MailFrom, RcptTo};
-use std::{str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc, time::Duration};
 use store::write::{BatchBuilder, now};
 use trc::{AddContext, TaskQueueEvent};
 use utils::{sanitize_email, template::Variables};
@@ -113,231 +114,16 @@ async fn send_alarm(
     let event = event_
         .unarchive::<CalendarEvent>()
         .caused_by(trc::location!())?;
-    let (Some(event_component), Some(alarm_component)) = (
-        event.data.event.components.get(alarm.event_id as usize),
-        event.data.event.components.get(alarm.alarm_id as usize),
-    ) else {
-        trc::event!(
-            TaskQueue(TaskQueueEvent::MetadataNotFound),
-            Details = "Calendar Alarm component not found",
-            AccountId = task.account_id,
-            DocumentId = task.document_id,
-        );
-        return Ok(true);
-    };
-
-    // Build webcal URI
-    let webcal_uri = match event.webcal_uri(server, &access_token).await {
-        Ok(uri) => uri,
-        Err(err) => {
-            trc::error!(
-                err.account_id(task.account_id)
-                    .document_id(task.document_id)
-                    .caused_by(trc::location!())
-                    .details("Failed to generate webcal URI")
-            );
-            String::from("#")
-        }
-    };
-
-    // Obtain alarm details
-    let mut summary = None;
-    let mut description = None;
-    let mut rcpt_to = None;
-    let mut location = None;
-    let mut organizer = None;
-    let mut guests = vec![];
-
-    for entry in alarm_component.entries.iter() {
-        match &entry.name {
-            ArchivedICalendarProperty::Summary => {
-                summary = entry.values.first().and_then(|v| v.as_text());
-            }
-            ArchivedICalendarProperty::Description => {
-                description = entry.values.first().and_then(|v| v.as_text());
-            }
-            ArchivedICalendarProperty::Attendee => {
-                rcpt_to = entry
-                    .values
-                    .first()
-                    .and_then(|v| v.as_text())
-                    .map(|v| v.strip_prefix("mailto:").unwrap_or(v))
-                    .and_then(sanitize_email);
-            }
-            _ => {}
-        }
-    }
-
-    for entry in event_component.entries.iter() {
-        match &entry.name {
-            ArchivedICalendarProperty::Summary if summary.is_none() => {
-                summary = entry.values.first().and_then(|v| v.as_text());
-            }
-            ArchivedICalendarProperty::Description if description.is_none() => {
-                description = entry.values.first().and_then(|v| v.as_text());
-            }
-            ArchivedICalendarProperty::Location => {
-                location = entry.values.first().and_then(|v| v.as_text());
-            }
-            ArchivedICalendarProperty::Organizer | ArchivedICalendarProperty::Attendee => {
-                let email = entry
-                    .values
-                    .first()
-                    .and_then(|v| v.as_text())
-                    .map(|v| v.strip_prefix("mailto:").unwrap_or(v));
-                let name = entry.params.iter().find_map(|param| {
-                    if let ArchivedICalendarParameter::Cn(name) = param {
-                        Some(name.as_str())
-                    } else {
-                        None
-                    }
-                });
-
-                if email.is_some() || name.is_some() {
-                    if matches!(entry.name, ArchivedICalendarProperty::Organizer) {
-                        organizer = Some((email, name));
-                    } else {
-                        guests.push((email, name));
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    // Validate recipient
-    let account_main_email = access_token.emails.first().unwrap();
-    let account_main_domain = account_main_email.rsplit('@').next().unwrap_or("localhost");
-    let rcpt_to = if let Some(rcpt_to) = rcpt_to {
-        if server.core.groupware.alarms_allow_external_recipients
-            || access_token.emails.iter().any(|email| email == &rcpt_to)
-        {
-            rcpt_to
-        } else {
-            trc::event!(
-                Calendar(trc::CalendarEvent::AlarmRecipientOverride),
-                Reason = "External recipient not allowed for calendar alarms",
-                Details = rcpt_to,
-                AccountId = task.account_id,
-                DocumentId = task.document_id,
-            );
-
-            account_main_email.to_string()
-        }
-    } else {
-        account_main_email.to_string()
-    };
 
     // Build message body
-    #[cfg(feature = "enterprise")]
-    let template = server
-        .core
-        .enterprise
-        .as_ref()
-        .and_then(|e| e.template_calendar_alarm.as_ref())
-        .unwrap_or(&server.core.groupware.alarms_template);
-    #[cfg(not(feature = "enterprise"))]
-    let template = &server.core.groupware.alarms_template;
-    let locale = i18n::locale_or_default(access_token.locale.as_deref().unwrap_or("en"));
-    let chrono_locale = access_token
-        .locale
-        .as_deref()
-        .and_then(|locale| Locale::from_str(locale).ok())
-        .unwrap_or(Locale::en_US);
-    let start = format!(
-        "{} ({})",
-        DateTime::from_timestamp(alarm.event_start, 0)
-            .unwrap_or_default()
-            .format_localized(locale.calendar_date_template, chrono_locale),
-        Tz::from_id(alarm.event_start_tz).unwrap_or(Tz::UTC).name()
-    );
-    let end = format!(
-        "{} ({})",
-        DateTime::from_timestamp(alarm.event_end, 0)
-            .unwrap_or_default()
-            .format_localized(locale.calendar_date_template, chrono_locale),
-        Tz::from_id(alarm.event_end_tz).unwrap_or(Tz::UTC).name()
-    );
-    let subject = format!(
-        "{}: {} @ {}",
-        locale.calendar_alarm_subject_prefix,
-        summary.or(description).unwrap_or("No Subject"),
-        start
-    );
-    let organizer = organizer
-        .map(|(email, name)| match (email, name) {
-            (Some(email), Some(name)) => format!("{} <{}>", name, email),
-            (Some(email), None) => email.to_string(),
-            (None, Some(name)) => name.to_string(),
-            _ => unreachable!(),
-        })
-        .unwrap_or_else(|| access_token.name.clone());
+    let account_main_email = access_token.emails.first().unwrap();
+    let account_main_domain = account_main_email.rsplit('@').next().unwrap_or("localhost");
     let logo_cid = format!("logo.{}@{account_main_domain}", now());
-    let mut variables = Variables::new();
-    variables.insert_single(CalendarTemplateVariable::PageTitle, subject.as_str());
-    variables.insert_single(
-        CalendarTemplateVariable::Header,
-        locale.calendar_alarm_header,
-    );
-    variables.insert_single(
-        CalendarTemplateVariable::Footer,
-        locale.calendar_alarm_footer,
-    );
-    variables.insert_single(
-        CalendarTemplateVariable::ActionName,
-        locale.calendar_alarm_open,
-    );
-    variables.insert_single(CalendarTemplateVariable::ActionUrl, webcal_uri.as_str());
-    variables.insert_single(
-        CalendarTemplateVariable::AttendeesTitle,
-        locale.calendar_attendees,
-    );
-    variables.insert_single(
-        CalendarTemplateVariable::EventTitle,
-        summary.unwrap_or_default(),
-    );
-    variables.insert_single(CalendarTemplateVariable::LogoCid, logo_cid.as_str());
-    if let Some(description) = description {
-        variables.insert_single(CalendarTemplateVariable::EventDescription, description);
-    }
-    variables.insert_block(
-        CalendarTemplateVariable::EventDetails,
-        [
-            Some([
-                (CalendarTemplateVariable::Key, locale.calendar_start),
-                (CalendarTemplateVariable::Value, start.as_str()),
-            ]),
-            Some([
-                (CalendarTemplateVariable::Key, locale.calendar_end),
-                (CalendarTemplateVariable::Value, end.as_str()),
-            ]),
-            location.map(|location| {
-                [
-                    (CalendarTemplateVariable::Key, locale.calendar_location),
-                    (CalendarTemplateVariable::Value, location),
-                ]
-            }),
-            Some([
-                (CalendarTemplateVariable::Key, locale.calendar_organizer),
-                (CalendarTemplateVariable::Value, organizer.as_str()),
-            ]),
-        ]
-        .into_iter()
-        .flatten(),
-    );
-    if !guests.is_empty() {
-        variables.insert_block(
-            CalendarTemplateVariable::Attendees,
-            guests.into_iter().map(|(email, name)| {
-                [
-                    (CalendarTemplateVariable::Key, name.unwrap_or_default()),
-                    (CalendarTemplateVariable::Value, email.unwrap_or_default()),
-                ]
-            }),
-        );
-    }
-    let html_body = template.eval(&variables);
-    let txt_body = html_to_text(&html_body);
+    let Some(tpl) = build_template(server, &access_token, task, alarm, event, &logo_cid).await?
+    else {
+        return Ok(true);
+    };
+    let txt_body = html_to_text(&tpl.body);
 
     // Obtain logo image
     let logo = match server.logo_resource(account_main_domain).await {
@@ -350,32 +136,38 @@ async fn send_alarm(
             None
         }
     };
-    let (logo_content_type, logo_contents) = if let Some(logo) = &logo {
-        (logo.content_type.as_ref(), logo.contents.as_slice())
+    let logo = if let Some(logo) = &logo {
+        MimePart::new(
+            ContentType::new(logo.content_type.as_ref()),
+            BodyPart::Binary(logo.contents.as_slice().into()),
+        )
     } else {
-        ("image/svg+xml", DEFAULT_LOGO.as_bytes())
-    };
+        MimePart::new(
+            ContentType::new("image/png"),
+            BodyPart::Binary(DEFAULT_LOGO_BASE64.as_bytes().into()),
+        )
+        .transfer_encoding("base64")
+    }
+    .inline()
+    .cid(&logo_cid);
 
     // Build message
     let mail_from = if let Some(from_email) = &server.core.groupware.alarms_from_email {
         from_email.to_string()
     } else {
-        format!("calendar-notification@{account_main_domain}",)
+        format!("calendar-notification@{account_main_domain}")
     };
     let message = MessageBuilder::new()
         .from((
             server.core.groupware.alarms_from_name.as_str(),
             mail_from.as_str(),
         ))
-        .header("To", HeaderType::Text(rcpt_to.as_str().into()))
+        .header("To", HeaderType::Text(tpl.to.as_str().into()))
         .header("Auto-Submitted", HeaderType::Text("auto-generated".into()))
-        .header(
-            "Reply-To",
-            HeaderType::Text(account_main_email.as_str().into()),
-        )
-        .subject(subject)
+        .header("Reply-To", HeaderType::Text(account_main_email.into()))
+        .subject(tpl.subject)
         .body(MimePart::new(
-            ContentType::new("multipart/mixed"),
+            ContentType::new("multipart/related"),
             BodyPart::Multipart(vec![
                 MimePart::new(
                     ContentType::new("multipart/alternative"),
@@ -386,16 +178,11 @@ async fn send_alarm(
                         ),
                         MimePart::new(
                             ContentType::new("text/html"),
-                            BodyPart::Text(html_body.into()),
+                            BodyPart::Text(tpl.body.into()),
                         ),
                     ]),
                 ),
-                MimePart::new(
-                    ContentType::new(logo_content_type),
-                    BodyPart::Binary(logo_contents.into()),
-                )
-                .inline()
-                .cid(logo_cid),
+                logo,
             ]),
         ))
         .write_to_vec()
@@ -403,7 +190,8 @@ async fn send_alarm(
 
     // Send message
     let server_ = server.clone();
-    let mail_from = account_main_email.clone();
+    let mail_from = account_main_email.to_string();
+    let to = tpl.to;
     let result = tokio::spawn(async move {
         let mut session = Session::<NullIo>::local(
             server_,
@@ -423,9 +211,10 @@ async fn send_alarm(
         }
 
         // RCPT TO
+        session.params.rcpt_errors_wait = Duration::from_secs(0);
         let _ = session
             .handle_rcpt_to(RcptTo {
-                address: rcpt_to,
+                address: to,
                 ..Default::default()
             })
             .await;
@@ -513,4 +302,244 @@ async fn send_alarm(
     }
 
     Ok(true)
+}
+
+struct Details {
+    to: String,
+    subject: String,
+    body: String,
+}
+
+async fn build_template(
+    server: &Server,
+    access_token: &AccessToken,
+    task: &Task,
+    alarm: &CalendarAlarm,
+    event: &ArchivedCalendarEvent,
+    logo_cid: &str,
+) -> trc::Result<Option<Details>> {
+    let (Some(event_component), Some(alarm_component)) = (
+        event.data.event.components.get(alarm.event_id as usize),
+        event.data.event.components.get(alarm.alarm_id as usize),
+    ) else {
+        trc::event!(
+            TaskQueue(TaskQueueEvent::MetadataNotFound),
+            Details = "Calendar Alarm component not found",
+            AccountId = task.account_id,
+            DocumentId = task.document_id,
+        );
+        return Ok(None);
+    };
+
+    // Build webcal URI
+    let webcal_uri = match event.webcal_uri(server, access_token).await {
+        Ok(uri) => uri,
+        Err(err) => {
+            trc::error!(
+                err.account_id(task.account_id)
+                    .document_id(task.document_id)
+                    .caused_by(trc::location!())
+                    .details("Failed to generate webcal URI")
+            );
+            String::from("#")
+        }
+    };
+
+    // Obtain alarm details
+    let mut summary = None;
+    let mut description = None;
+    let mut rcpt_to = None;
+    let mut location = None;
+    let mut organizer = None;
+    let mut guests = vec![];
+
+    for entry in alarm_component.entries.iter() {
+        match &entry.name {
+            ArchivedICalendarProperty::Summary => {
+                summary = entry.values.first().and_then(|v| v.as_text());
+            }
+            ArchivedICalendarProperty::Description => {
+                description = entry.values.first().and_then(|v| v.as_text());
+            }
+            ArchivedICalendarProperty::Attendee => {
+                rcpt_to = entry
+                    .values
+                    .first()
+                    .and_then(|v| v.as_text())
+                    .map(|v| v.strip_prefix("mailto:").unwrap_or(v))
+                    .and_then(sanitize_email);
+            }
+            _ => {}
+        }
+    }
+
+    for entry in event_component.entries.iter() {
+        match &entry.name {
+            ArchivedICalendarProperty::Summary if summary.is_none() => {
+                summary = entry.values.first().and_then(|v| v.as_text());
+            }
+            ArchivedICalendarProperty::Description if description.is_none() => {
+                description = entry.values.first().and_then(|v| v.as_text());
+            }
+            ArchivedICalendarProperty::Location => {
+                location = entry.values.first().and_then(|v| v.as_text());
+            }
+            ArchivedICalendarProperty::Organizer | ArchivedICalendarProperty::Attendee => {
+                let email = entry
+                    .values
+                    .first()
+                    .and_then(|v| v.as_text())
+                    .map(|v| v.strip_prefix("mailto:").unwrap_or(v));
+                let name = entry.params.iter().find_map(|param| {
+                    if let ArchivedICalendarParameter::Cn(name) = param {
+                        Some(name.as_str())
+                    } else {
+                        None
+                    }
+                });
+
+                if email.is_some() || name.is_some() {
+                    if matches!(entry.name, ArchivedICalendarProperty::Organizer) {
+                        organizer = Some((email, name));
+                    } else {
+                        guests.push((email, name));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Validate recipient
+    let rcpt_to = if let Some(rcpt_to) = rcpt_to {
+        if server.core.groupware.alarms_allow_external_recipients
+            || access_token.emails.iter().any(|email| email == &rcpt_to)
+        {
+            rcpt_to
+        } else {
+            trc::event!(
+                Calendar(trc::CalendarEvent::AlarmRecipientOverride),
+                Reason = "External recipient not allowed for calendar alarms",
+                Details = rcpt_to,
+                AccountId = task.account_id,
+                DocumentId = task.document_id,
+            );
+
+            access_token.emails.first().unwrap().to_string()
+        }
+    } else {
+        access_token.emails.first().unwrap().to_string()
+    };
+
+    #[cfg(feature = "enterprise")]
+    let template = server
+        .core
+        .enterprise
+        .as_ref()
+        .and_then(|e| e.template_calendar_alarm.as_ref())
+        .unwrap_or(&server.core.groupware.alarms_template);
+    #[cfg(not(feature = "enterprise"))]
+    let template = &server.core.groupware.alarms_template;
+    let locale = i18n::locale_or_default(access_token.locale.as_deref().unwrap_or("en"));
+    let chrono_locale = access_token
+        .locale
+        .as_deref()
+        .and_then(|locale| Locale::from_str(locale).ok())
+        .unwrap_or(Locale::en_US);
+    let start = format!(
+        "{} ({})",
+        DateTime::from_timestamp(alarm.event_start, 0)
+            .unwrap_or_default()
+            .format_localized(locale.calendar_date_template, chrono_locale),
+        Tz::from_id(alarm.event_start_tz).unwrap_or(Tz::UTC).name()
+    );
+    let end = format!(
+        "{} ({})",
+        DateTime::from_timestamp(alarm.event_end, 0)
+            .unwrap_or_default()
+            .format_localized(locale.calendar_date_template, chrono_locale),
+        Tz::from_id(alarm.event_end_tz).unwrap_or(Tz::UTC).name()
+    );
+    let subject = format!(
+        "{}: {} @ {}",
+        locale.calendar_alarm_subject_prefix,
+        summary.or(description).unwrap_or("No Subject"),
+        start
+    );
+    let organizer = organizer
+        .map(|(email, name)| match (email, name) {
+            (Some(email), Some(name)) => format!("{} <{}>", name, email),
+            (Some(email), None) => email.to_string(),
+            (None, Some(name)) => name.to_string(),
+            _ => unreachable!(),
+        })
+        .unwrap_or_else(|| access_token.name.clone());
+    let mut variables = Variables::new();
+    variables.insert_single(CalendarTemplateVariable::PageTitle, subject.as_str());
+    variables.insert_single(
+        CalendarTemplateVariable::Header,
+        locale.calendar_alarm_header,
+    );
+    variables.insert_single(
+        CalendarTemplateVariable::Footer,
+        locale.calendar_alarm_footer,
+    );
+    variables.insert_single(
+        CalendarTemplateVariable::ActionName,
+        locale.calendar_alarm_open,
+    );
+    variables.insert_single(CalendarTemplateVariable::ActionUrl, webcal_uri.as_str());
+    variables.insert_single(
+        CalendarTemplateVariable::AttendeesTitle,
+        locale.calendar_attendees,
+    );
+    variables.insert_single(
+        CalendarTemplateVariable::EventTitle,
+        summary.unwrap_or_default(),
+    );
+    variables.insert_single(CalendarTemplateVariable::LogoCid, logo_cid);
+    if let Some(description) = description {
+        variables.insert_single(CalendarTemplateVariable::EventDescription, description);
+    }
+    variables.insert_block(
+        CalendarTemplateVariable::EventDetails,
+        [
+            Some([
+                (CalendarTemplateVariable::Key, locale.calendar_start),
+                (CalendarTemplateVariable::Value, start.as_str()),
+            ]),
+            Some([
+                (CalendarTemplateVariable::Key, locale.calendar_end),
+                (CalendarTemplateVariable::Value, end.as_str()),
+            ]),
+            location.map(|location| {
+                [
+                    (CalendarTemplateVariable::Key, locale.calendar_location),
+                    (CalendarTemplateVariable::Value, location),
+                ]
+            }),
+            Some([
+                (CalendarTemplateVariable::Key, locale.calendar_organizer),
+                (CalendarTemplateVariable::Value, organizer.as_str()),
+            ]),
+        ]
+        .into_iter()
+        .flatten(),
+    );
+    if !guests.is_empty() {
+        variables.insert_block(
+            CalendarTemplateVariable::Attendees,
+            guests.into_iter().map(|(email, name)| {
+                [
+                    (CalendarTemplateVariable::Key, name.unwrap_or_default()),
+                    (CalendarTemplateVariable::Value, email.unwrap_or_default()),
+                ]
+            }),
+        );
+    }
+    Ok(Some(Details {
+        to: rcpt_to,
+        body: template.eval(&variables),
+        subject,
+    }))
 }

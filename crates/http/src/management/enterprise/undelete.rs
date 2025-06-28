@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: LicenseRef-SEL
  *
@@ -11,7 +11,7 @@
 use std::str::FromStr;
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use common::{Server, auth::AccessToken, enterprise::undelete::DeletedBlob};
+use common::{Server, enterprise::undelete::DeletedBlob};
 use directory::backend::internal::manage::ManageDirectory;
 use email::{
     mailbox::INBOX_ID,
@@ -182,6 +182,10 @@ impl UndeleteApi for Server {
                         }
                     };
 
+                let access_token = self
+                    .get_access_token(account_id)
+                    .await
+                    .caused_by(trc::location!())?;
                 let mut results = Vec::with_capacity(requests.len());
                 let mut batch = BatchBuilder::new();
                 batch.with_account_id(account_id);
@@ -198,13 +202,7 @@ impl UndeleteApi for Server {
                                         .email_ingest(IngestEmail {
                                             raw_message: &bytes,
                                             message: MessageParser::new().parse(&bytes),
-                                            resource: self
-                                                .get_resource_token(
-                                                    &AccessToken::from_id(u32::MAX),
-                                                    account_id,
-                                                )
-                                                .await
-                                                .caused_by(trc::location!())?,
+                                            access_token: access_token.as_ref(),
                                             mailbox_ids: vec![INBOX_ID],
                                             keywords: vec![],
                                             received_at: request.time.into(),

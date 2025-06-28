@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -45,6 +45,7 @@ pub trait SieveScriptIngest: Sync + Send {
         access_token: &AccessToken,
         raw_message: &[u8],
         envelope_from: &str,
+        envelope_from_authenticated: bool,
         envelope_to: &str,
         session_id: u64,
         active_script: ActiveScript,
@@ -76,6 +77,7 @@ impl SieveScriptIngest for Server {
         access_token: &AccessToken,
         raw_message: &[u8],
         envelope_from: &str,
+        envelope_from_authenticated: bool,
         envelope_to: &str,
         session_id: u64,
         active_script: ActiveScript,
@@ -506,12 +508,13 @@ impl SieveScriptIngest for Server {
                     .email_ingest(IngestEmail {
                         raw_message: &sieve_message.raw_message,
                         message: message.into(),
-                        resource: access_token.as_resource_token(),
+                        access_token,
                         mailbox_ids: sieve_message.file_into,
                         keywords: sieve_message.flags,
                         received_at: None,
                         source: IngestSource::Smtp {
                             deliver_to: envelope_to,
+                            is_sender_authenticated: envelope_from_authenticated,
                         },
                         spam_classify: access_token.has_permission(Permission::SpamFilterClassify),
                         spam_train: can_spam_train,

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -20,6 +20,7 @@ use super::ingest::{EmailIngest, IngestEmail, IngestSource};
 #[derive(Debug)]
 pub struct IngestMessage {
     pub sender_address: String,
+    pub sender_authenticated: bool,
     pub recipients: Vec<String>,
     pub message_blob: BlobHash,
     pub message_size: u64,
@@ -177,11 +178,14 @@ impl MailDelivery for Server {
                             self.email_ingest(IngestEmail {
                                 raw_message: &raw_message,
                                 message: MessageParser::new().parse(&raw_message),
-                                resource: access_token.as_resource_token(),
+                                access_token: &access_token,
                                 mailbox_ids: vec![INBOX_ID],
                                 keywords: vec![],
                                 received_at: None,
-                                source: IngestSource::Smtp { deliver_to: &rcpt },
+                                source: IngestSource::Smtp {
+                                    deliver_to: &rcpt,
+                                    is_sender_authenticated: message.sender_authenticated,
+                                },
                                 spam_classify: access_token
                                     .has_permission(Permission::SpamFilterClassify),
                                 spam_train: self.email_bayes_can_train(&access_token),
@@ -194,6 +198,7 @@ impl MailDelivery for Server {
                                 &access_token,
                                 &raw_message,
                                 &message.sender_address,
+                                message.sender_authenticated,
                                 &rcpt,
                                 message.session_id,
                                 active_script,

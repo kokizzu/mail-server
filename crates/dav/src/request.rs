@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -10,7 +10,8 @@ use crate::{
         copy_move::CalendarCopyMoveRequestHandler, delete::CalendarDeleteRequestHandler,
         freebusy::CalendarFreebusyRequestHandler, get::CalendarGetRequestHandler,
         mkcol::CalendarMkColRequestHandler, proppatch::CalendarPropPatchRequestHandler,
-        query::CalendarQueryRequestHandler, update::CalendarUpdateRequestHandler,
+        query::CalendarQueryRequestHandler, scheduling::CalendarSchedulingHandler,
+        update::CalendarUpdateRequestHandler,
     },
     card::{
         copy_move::CardCopyMoveRequestHandler, delete::CardDeleteRequestHandler,
@@ -143,6 +144,17 @@ impl DavRequestDispatcher for Server {
                         .await
                     }
                 }
+                DavResourceName::Scheduling => {
+                    // Validate permissions
+                    access_token.assert_has_permission(Permission::DavCalGet)?;
+
+                    self.handle_scheduling_get_request(
+                        &access_token,
+                        headers,
+                        matches!(method, DavMethod::HEAD),
+                    )
+                    .await
+                }
                 DavResourceName::Principal => Err(DavError::Code(StatusCode::METHOD_NOT_ALLOWED)),
             },
             DavMethod::REPORT => match Report::parse(&mut Tokenizer::new(&body))? {
@@ -155,7 +167,10 @@ impl DavRequestDispatcher for Server {
                         .await
                         .and_then(|d| d.into_owned_uri())?;
                     match resource {
-                        DavResourceName::Card | DavResourceName::Cal | DavResourceName::File => {
+                        DavResourceName::Card
+                        | DavResourceName::Cal
+                        | DavResourceName::File
+                        | DavResourceName::Scheduling => {
                             self.handle_dav_query(
                                 &access_token,
                                 DavQuery::changes(uri, sync_collection, headers),
@@ -267,7 +282,7 @@ impl DavRequestDispatcher for Server {
                             )
                             .await
                         }
-                        DavResourceName::Principal => {
+                        DavResourceName::Principal | DavResourceName::Scheduling => {
                             Err(DavError::Code(StatusCode::METHOD_NOT_ALLOWED))
                         }
                     }
@@ -297,7 +312,7 @@ impl DavRequestDispatcher for Server {
                         self.handle_file_proppatch_request(&access_token, headers, request)
                             .await
                     }
-                    DavResourceName::Principal => {
+                    DavResourceName::Principal | DavResourceName::Scheduling => {
                         Err(DavError::Code(StatusCode::METHOD_NOT_ALLOWED))
                     }
                 }
@@ -331,7 +346,7 @@ impl DavRequestDispatcher for Server {
                         self.handle_file_mkcol_request(&access_token, headers, request)
                             .await
                     }
-                    DavResourceName::Principal => {
+                    DavResourceName::Principal | DavResourceName::Scheduling => {
                         Err(DavError::Code(StatusCode::METHOD_NOT_ALLOWED))
                     }
                 }
@@ -356,6 +371,13 @@ impl DavRequestDispatcher for Server {
                     access_token.assert_has_permission(Permission::DavFileDelete)?;
 
                     self.handle_file_delete_request(&access_token, headers)
+                        .await
+                }
+                DavResourceName::Scheduling => {
+                    // Validate permissions
+                    access_token.assert_has_permission(Permission::DavCalDelete)?;
+
+                    self.handle_scheduling_delete_request(&access_token, headers)
                         .await
                 }
                 DavResourceName::Principal => Err(DavError::Code(StatusCode::METHOD_NOT_ALLOWED)),
@@ -397,6 +419,13 @@ impl DavRequestDispatcher for Server {
                     )
                     .await
                 }
+                DavResourceName::Scheduling => {
+                    // Validate permissions
+                    access_token.assert_has_permission(Permission::DavCalFreeBusyQuery)?;
+
+                    self.handle_scheduling_post_request(&access_token, headers, body)
+                        .await
+                }
                 DavResourceName::Principal => Err(DavError::Code(StatusCode::METHOD_NOT_ALLOWED)),
             },
             DavMethod::COPY | DavMethod::MOVE => {
@@ -434,7 +463,7 @@ impl DavRequestDispatcher for Server {
                         self.handle_file_copy_move_request(&access_token, headers, is_move)
                             .await
                     }
-                    DavResourceName::Principal => {
+                    DavResourceName::Principal | DavResourceName::Scheduling => {
                         Err(DavError::Code(StatusCode::METHOD_NOT_ALLOWED))
                     }
                 }
@@ -594,7 +623,9 @@ impl DavRequestHandler for Server {
                                 ErrorResponse::new(BaseCondition::QuotaNotExceeded)
                                     .with_namespace(match resource {
                                         DavResourceName::Card => Namespace::CardDav,
-                                        DavResourceName::Cal => Namespace::CalDav,
+                                        DavResourceName::Cal | DavResourceName::Scheduling => {
+                                            Namespace::CalDav
+                                        }
                                         DavResourceName::File | DavResourceName::Principal => {
                                             Namespace::Dav
                                         }
@@ -639,8 +670,9 @@ impl DavRequestHandler for Server {
                     Url = headers.uri.to_compact_string(),
                     Type = resource.name(),
                     Details = &headers,
-                    Result = condition.code.as_u16(),
-                    Reason = CompactString::const_new(condition.condition.display_name()),
+                    Code = condition.code.as_u16(),
+                    Result = CompactString::const_new(condition.condition.display_name()),
+                    Reason = condition.details,
                     Elapsed = start_time.elapsed(),
                 );
 
@@ -649,7 +681,9 @@ impl DavRequestHandler for Server {
                         ErrorResponse::new(condition.condition)
                             .with_namespace(match resource {
                                 DavResourceName::Card => Namespace::CardDav,
-                                DavResourceName::Cal => Namespace::CalDav,
+                                DavResourceName::Cal | DavResourceName::Scheduling => {
+                                    Namespace::CalDav
+                                }
                                 DavResourceName::File | DavResourceName::Principal => {
                                     Namespace::Dav
                                 }

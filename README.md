@@ -53,9 +53,10 @@ Key features:
     * Distributed virtual queues with delayed delivery, priority delivery, quotas, routing rules and throttling support.
     * Envelope rewriting and message modification.
 - **Collaboration** server:
-  - Calendar and scheduling with [CalDAV](https://datatracker.ietf.org/doc/html/rfc4791).
-  - Contact management with [CardDAV](https://datatracker.ietf.org/doc/html/rfc6352).
-  - File storage and sharing with [WebDAV](https://datatracker.ietf.org/doc/html/rfc4918).
+  - Calendaring with [CalDAV](https://datatracker.ietf.org/doc/html/rfc4791), [CalDAV Scheduling](https://datatracker.ietf.org/doc/html/rfc6638) and e-mail alarms support.
+  - Contact management with [CardDAV](https://datatracker.ietf.org/doc/html/rfc6352) support.
+  - File storage with [WebDAV](https://datatracker.ietf.org/doc/html/rfc4918) support.
+  - Sharing with [WebDAV ACL](https://datatracker.ietf.org/doc/html/rfc3744) support for fine-grained access control.
 - **Spam** and **Phishing** built-in filter:
   - Comprehensive set of filtering **rules** on par with popular solutions.
   - LLM-driven spam filtering and message analysis.
@@ -171,4 +172,4 @@ Each file in this project contains a license notice at the top, indicating the a
 
 ## Copyright
 
-Copyright (C) 2020, Stalwart Labs Ltd.
+Copyright (C) 2020, Stalwart Labs LLC

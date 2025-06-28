@@ -1,12 +1,14 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
 
+use std::time::Duration;
+
 use jmap_client::{
     Error, Set,
-    client::Client,
+    client::{Client, Credentials},
     core::{
         query::Filter,
         set::{SetError, SetErrorType, SetObject, SetRequest},
@@ -656,6 +658,19 @@ fn build_create_query(
             build_create_query(request, mailbox_map, children, create_mailbox_id.into());
         }
     }
+}
+
+pub async fn destroy_all_mailboxes_for_account(account_id: u32) {
+    let mut client = Client::new()
+        .credentials(Credentials::basic("admin", "secret"))
+        .follow_redirects(["127.0.0.1"])
+        .timeout(Duration::from_secs(3600))
+        .accept_invalid_certs(true)
+        .connect("https://127.0.0.1:8899")
+        .await
+        .unwrap();
+    client.set_default_account_id(Id::from(account_id));
+    destroy_all_mailboxes_no_wait(&client).await;
 }
 
 pub async fn destroy_all_mailboxes(test: &JMAPTest) {

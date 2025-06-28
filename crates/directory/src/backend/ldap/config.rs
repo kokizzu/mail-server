@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -98,12 +98,15 @@ impl LdapDirectory {
             &mappings.attr_type,
             &mappings.attr_description,
             &mappings.attr_secret,
+            &mappings.attr_secret_changed,
             &mappings.attr_quota,
             &mappings.attr_groups,
             &mappings.attr_email_address,
             &mappings.attr_email_alias,
         ] {
-            mappings.attrs_principal.extend(attr.iter().cloned());
+            mappings
+                .attrs_principal
+                .extend(attr.iter().filter(|a| !a.is_empty()).cloned());
         }
 
         let auth_bind = match config

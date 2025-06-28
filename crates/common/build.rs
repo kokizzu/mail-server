@@ -18,9 +18,9 @@ fn main() {
 
     let generated_code = generate_locale_code(&locales);
 
-    fs::write(&dest_path, generated_code).expect("Failed to write generated locales");
+    fs::write(&dest_path, generated_code).expect("Failed to write generated locales.");
 
-    println!("cargo:rerun-if-changed={yaml_path:?}");
+    println!("cargo:rerun-if-changed={}", yaml_path.display());
 }
 
 fn parse_yaml(content: &str) -> HashMap<String, HashMap<String, String>> {

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -559,8 +559,29 @@ impl DavProperty {
             (Namespace::CalDav, Element::MaxAttendeesPerInstance) => {
                 Some(DavProperty::CalDav(CalDavProperty::MaxAttendeesPerInstance))
             }
+            (Namespace::CalDav, Element::ScheduleDefaultCalendarUrl) => Some(DavProperty::CalDav(
+                CalDavProperty::ScheduleDefaultCalendarURL,
+            )),
+            (Namespace::CalDav, Element::ScheduleTag) => {
+                Some(DavProperty::CalDav(CalDavProperty::ScheduleTag))
+            }
+            (Namespace::CalDav, Element::ScheduleCalendarTransp) => {
+                Some(DavProperty::CalDav(CalDavProperty::ScheduleCalendarTransp))
+            }
             (Namespace::CalDav, Element::CalendarHomeSet) => {
                 Some(DavProperty::Principal(PrincipalProperty::CalendarHomeSet))
+            }
+            (Namespace::CalDav, Element::CalendarUserAddressSet) => Some(DavProperty::Principal(
+                PrincipalProperty::CalendarUserAddressSet,
+            )),
+            (Namespace::CalDav, Element::CalendarUserType) => {
+                Some(DavProperty::Principal(PrincipalProperty::CalendarUserType))
+            }
+            (Namespace::CalDav, Element::ScheduleInboxUrl) => {
+                Some(DavProperty::Principal(PrincipalProperty::ScheduleInboxURL))
+            }
+            (Namespace::CalDav, Element::ScheduleOutboxUrl) => {
+                Some(DavProperty::Principal(PrincipalProperty::ScheduleOutboxURL))
             }
             (Namespace::CalDav, Element::CalendarData) => Some(DavProperty::CalDav(
                 CalDavProperty::CalendarData(Default::default()),
@@ -588,6 +609,8 @@ impl TryFrom<NamedElement> for ResourceType {
             (Namespace::Dav, Element::Principal) => Ok(ResourceType::Principal),
             (Namespace::CardDav, Element::Addressbook) => Ok(ResourceType::AddressBook),
             (Namespace::CalDav, Element::Calendar) => Ok(ResourceType::Calendar),
+            (Namespace::CalDav, Element::ScheduleInbox) => Ok(ResourceType::ScheduleInbox),
+            (Namespace::CalDav, Element::ScheduleOutbox) => Ok(ResourceType::ScheduleOutbox),
             _ => Err(()),
         }
     }

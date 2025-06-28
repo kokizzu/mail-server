@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -23,7 +23,7 @@ pub struct PrincipalInfo {
 #[cfg(feature = "enterprise")]
 impl PrincipalInfo {
     // SPDX-SnippetBegin
-    // SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+    // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
     // SPDX-License-Identifier: LicenseRef-SEL
 
     pub fn has_tenant_access(&self, tenant_id: Option<u32>) -> bool {
@@ -111,6 +111,7 @@ pub enum PrincipalField {
     Picture,
     Urls,
     ExternalMembers,
+    Locale,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -198,6 +199,7 @@ impl PrincipalField {
             PrincipalField::Picture => 14,
             PrincipalField::Urls => 15,
             PrincipalField::ExternalMembers => 16,
+            PrincipalField::Locale => 17,
         }
     }
 
@@ -220,6 +222,7 @@ impl PrincipalField {
             14 => Some(PrincipalField::Picture),
             15 => Some(PrincipalField::Urls),
             16 => Some(PrincipalField::ExternalMembers),
+            17 => Some(PrincipalField::Locale),
             _ => None,
         }
     }
@@ -243,6 +246,7 @@ impl PrincipalField {
             PrincipalField::Picture => "picture",
             PrincipalField::Urls => "urls",
             PrincipalField::ExternalMembers => "externalMembers",
+            PrincipalField::Locale => "locale",
         }
     }
 
@@ -265,6 +269,7 @@ impl PrincipalField {
             "picture" => Some(PrincipalField::Picture),
             "urls" => Some(PrincipalField::Urls),
             "externalMembers" => Some(PrincipalField::ExternalMembers),
+            "locale" => Some(PrincipalField::Locale),
             _ => None,
         }
     }

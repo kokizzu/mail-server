@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.12.5] - 2025-06-25
+
+If you are upgrading from v0.11.x, this version includes **breaking changes** to the database layout and requires a migration. Please read the [UPGRADING.md](https://github.com/stalwartlabs/stalwart/blob/main/UPGRADING.md) file for more information on how to upgrade from previous versions.
+
+## Added
+- Calendar Scheduling Extensions to CalDAV - RFC6368 (#1514)
+- Calendar E-Mail Notifications (#1514)
+- Limited i18n support for calendaring events.
+- Assisted CalDAV/CardDAV shared resource discovery (#1691).
+
+## Changed
+- JMAP: Allow unauthenticated access to JMAP session object.
+
+## Fixed
+- WebDAV: Return NOTFOUND error instead of MULTISTATUS on empty PROPFIND responses (#1657).
+- WebDAV: Update account name when refreshing DAV caches (#1694).
+- JMAP: Do not include email address in identity names (#1688).
+- IMAP: Normalize `INBOX` name when creating/renaming folders (#1636).
+- LDAP: Request `secret-changed` attribute in LDAP queries (#1409).
+- Branding: Unable to change logos (#1652).
+- Antispam: Skip `card-is-ham` override when sender does not pass DMARC (#1648).
+- FoundationDB: Renew old/expired FDB read transactions after the `1007` error code is received rather than estimating expiration time.
+
 ## [0.12.4] - 2025-06-03
 
 If you are upgrading from v0.11.x, this version includes **breaking changes** to the database layout and requires a migration. Please read the [UPGRADING.md](https://github.com/stalwartlabs/stalwart/blob/main/UPGRADING.md) file for more information on how to upgrade from previous versions.

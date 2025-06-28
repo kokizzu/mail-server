@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -98,6 +98,9 @@ pub enum CalDavProperty {
     CalendarData(CalendarData),
     TimezoneServiceSet,
     TimezoneId,
+    ScheduleDefaultCalendarURL,
+    ScheduleTag,
+    ScheduleCalendarTransp,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,6 +114,10 @@ pub enum PrincipalProperty {
     CalendarHomeSet,
     AddressbookHomeSet,
     PrincipalAddress,
+    CalendarUserAddressSet,
+    CalendarUserType,
+    ScheduleInboxURL,
+    ScheduleOutboxURL,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -205,6 +212,8 @@ pub enum ResourceType {
     Principal,
     AddressBook,
     Calendar,
+    ScheduleInbox,
+    ScheduleOutbox,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -263,6 +272,14 @@ pub enum Privilege {
     Unbind,
     All,
     ReadFreeBusy,
+    ScheduleDeliver,
+    ScheduleDeliverInvite,
+    ScheduleDeliverReply,
+    ScheduleQueryFreeBusy,
+    ScheduleSend,
+    ScheduleSendInvite,
+    ScheduleSendReply,
+    ScheduleSendFreeBusy,
 }
 
 impl Privilege {
@@ -297,6 +314,41 @@ impl Privilege {
                 Privilege::Unbind,
             ]
         }
+    }
+
+    pub fn scheduling(is_inbox: bool, is_owner: bool) -> Vec<Privilege> {
+        let mut privileges = if is_inbox {
+            vec![
+                Privilege::Read,
+                Privilege::ReadCurrentUserPrivilegeSet,
+                Privilege::ScheduleDeliver,
+                Privilege::ScheduleDeliverInvite,
+                Privilege::ScheduleDeliverReply,
+                Privilege::ScheduleQueryFreeBusy,
+            ]
+        } else {
+            vec![
+                Privilege::Read,
+                Privilege::ReadCurrentUserPrivilegeSet,
+                Privilege::ScheduleSend,
+                Privilege::ScheduleSendInvite,
+                Privilege::ScheduleSendReply,
+                Privilege::ScheduleSendFreeBusy,
+            ]
+        };
+
+        if is_owner {
+            privileges.extend([
+                Privilege::All,
+                Privilege::Write,
+                Privilege::WriteProperties,
+                Privilege::WriteContent,
+                Privilege::ReadAcl,
+                Privilege::WriteAcl,
+            ]);
+        }
+
+        privileges
     }
 }
 

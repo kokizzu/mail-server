@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: LicenseRef-SEL
  *
@@ -110,7 +110,8 @@ pub async fn test(params: &mut JMAPTest) {
         ai_apis: Default::default(),
         spam_filter_llm: None,
         template_calendar_alarm: None,
-        template_calendar_invite: None,
+        template_scheduling_email: None,
+        template_scheduling_web: None,
     }
     .into();
     config.assert_no_errors();
@@ -180,7 +181,8 @@ impl EnterpriseCore for Core {
             ai_apis: Default::default(),
             spam_filter_llm: None,
             template_calendar_alarm: None,
-            template_calendar_invite: None,
+            template_scheduling_email: None,
+            template_scheduling_web: None,
         }
         .into();
         self

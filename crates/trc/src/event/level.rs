@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -537,11 +537,14 @@ impl EventType {
             },
             EventType::WebDav(_) => Level::Debug,
             EventType::Calendar(event) => match event {
-                CalendarEvent::AlarmSent => Level::Info,
+                CalendarEvent::ItipMessageSent
+                | CalendarEvent::ItipMessageReceived
+                | CalendarEvent::AlarmSent => Level::Info,
                 CalendarEvent::AlarmFailed => Level::Warn,
                 CalendarEvent::RuleExpansionError
                 | CalendarEvent::AlarmSkipped
-                | CalendarEvent::AlarmRecipientOverride => Level::Debug,
+                | CalendarEvent::AlarmRecipientOverride
+                | CalendarEvent::ItipMessageError => Level::Debug,
             },
         }
     }

@@ -1,14 +1,15 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
 
+use crate::jmap::mailbox::destroy_all_mailboxes_for_account;
+
 use super::WebDavTest;
-use email::{cache::MessageCacheFetch, message::metadata::MessageMetadata};
+use email::cache::MessageCacheFetch;
 use hyper::StatusCode;
-use jmap_proto::types::{collection::Collection, property::Property};
-use mail_parser::DateTime;
+use mail_parser::{DateTime, MessageParser};
 use store::write::now;
 
 pub async fn test(test: &WebDavTest) {
@@ -40,39 +41,20 @@ pub async fn test(test: &WebDavTest) {
     assert_eq!(messages.emails.items.len(), 2);
 
     for (idx, message) in messages.emails.items.iter().enumerate() {
-        let metadata_ = test
-            .server
-            .get_archive_by_property(
-                client.account_id,
-                Collection::Email,
-                message.document_id,
-                Property::BodyStructure,
-            )
-            .await
+        let contents = test
+            .fetch_email(client.account_id, message.document_id)
+            .await;
+
+        //let t = std::fs::write(format!("message_{}.eml", message.document_id), &contents).unwrap();
+
+        let message = MessageParser::new().parse(&contents).unwrap();
+        let contents = message
+            .html_bodies()
+            .next()
             .unwrap()
+            .text_contents()
             .unwrap();
-        let contents = String::from_utf8(
-            test.server
-                .blob_store()
-                .get_blob(
-                    metadata_
-                        .unarchive::<MessageMetadata>()
-                        .unwrap()
-                        .blob_hash
-                        .0
-                        .as_slice(),
-                    0..usize::MAX,
-                )
-                .await
-                .unwrap()
-                .unwrap(),
-        )
-        .unwrap();
-        /*std::fs::write(
-            format!("message_{}.eml", message.document_id),
-            contents.as_bytes(),
-        )
-        .unwrap();*/
+
         if idx == 0 {
             // First alarm does not have a summary or description
             assert!(
@@ -89,7 +71,7 @@ pub async fn test(test: &WebDavTest) {
                 "failed for {contents}"
             );
             assert!(
-                contents.contains("It's alarming how charming I feel."),
+                contents.contains("It&#39;s alarming how charming I feel."),
                 "failed for {contents}"
             );
         }
@@ -101,6 +83,10 @@ pub async fn test(test: &WebDavTest) {
             "failed for {contents}"
         );
     }
+
+    client.delete_default_containers().await;
+    destroy_all_mailboxes_for_account(client.account_id).await;
+    test.assert_is_empty().await
 }
 
 const TEST_ALARM_1: &str = r#"BEGIN:VCALENDAR

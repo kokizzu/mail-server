@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -8,6 +8,7 @@ pub mod alarm;
 pub mod dates;
 pub mod expand;
 pub mod index;
+pub mod itip;
 pub mod storage;
 
 use calcard::icalendar::ICalendar;
@@ -57,6 +58,9 @@ pub struct DefaultAlert {
     pub with_time: bool,
 }
 
+pub const SCHEDULE_INBOX_ID: u32 = u32::MAX - 1;
+pub const SCHEDULE_OUTBOX_ID: u32 = u32::MAX - 2;
+
 pub const EVENT_INVITE_SELF: u16 = 1;
 pub const EVENT_INVITE_OTHERS: u16 = 1 << 1;
 pub const EVENT_HIDE_ATTENDEES: u16 = 1 << 2;
@@ -73,6 +77,19 @@ pub struct CalendarEvent {
     pub user_properties: Vec<UserProperties>,
     pub flags: u16,
     pub dead_properties: DeadProperty,
+    pub size: u32,
+    pub created: i64,
+    pub modified: i64,
+    pub schedule_tag: Option<u32>,
+}
+
+#[derive(
+    rkyv::Archive, rkyv::Deserialize, rkyv::Serialize, Debug, Default, Clone, PartialEq, Eq,
+)]
+pub struct CalendarScheduling {
+    pub itip: ICalendar,
+    pub event_id: Option<u32>,
+    pub flags: u16,
     pub size: u32,
     pub created: i64,
     pub modified: i64,
@@ -153,13 +170,13 @@ impl TryFrom<Acl> for CalendarRight {
 
     fn try_from(value: Acl) -> Result<Self, Self::Error> {
         match value {
-            Acl::ReadFreeBusy => Ok(CalendarRight::ReadFreeBusy),
+            Acl::SchedulingReadFreeBusy => Ok(CalendarRight::ReadFreeBusy),
             Acl::ReadItems => Ok(CalendarRight::ReadItems),
             Acl::Modify => Ok(CalendarRight::WriteAll),
             Acl::ModifyItemsOwn => Ok(CalendarRight::WriteOwn),
             Acl::ModifyPrivateProperties => Ok(CalendarRight::UpdatePrivate),
-            Acl::RSVP => Ok(CalendarRight::RSVP),
-            Acl::Share => Ok(CalendarRight::Share),
+            Acl::SchedulingReply => Ok(CalendarRight::RSVP),
+            Acl::Administer => Ok(CalendarRight::Share),
             Acl::Delete => Ok(CalendarRight::Delete),
             _ => Err(value),
         }
@@ -169,13 +186,13 @@ impl TryFrom<Acl> for CalendarRight {
 impl From<CalendarRight> for Acl {
     fn from(value: CalendarRight) -> Self {
         match value {
-            CalendarRight::ReadFreeBusy => Acl::ReadFreeBusy,
+            CalendarRight::ReadFreeBusy => Acl::SchedulingReadFreeBusy,
             CalendarRight::ReadItems => Acl::ReadItems,
             CalendarRight::WriteAll => Acl::Modify,
             CalendarRight::WriteOwn => Acl::ModifyItemsOwn,
             CalendarRight::UpdatePrivate => Acl::ModifyPrivateProperties,
-            CalendarRight::RSVP => Acl::RSVP,
-            CalendarRight::Share => Acl::Share,
+            CalendarRight::RSVP => Acl::SchedulingReply,
+            CalendarRight::Share => Acl::Administer,
             CalendarRight::Delete => Acl::Delete,
         }
     }

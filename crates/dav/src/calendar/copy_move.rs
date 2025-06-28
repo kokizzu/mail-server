@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -64,6 +64,21 @@ impl CalendarCopyMoveRequestHandler for Server {
         let from_resource = from_resources
             .by_path(from_resource_name)
             .ok_or(DavError::Code(StatusCode::NOT_FOUND))?;
+        #[cfg(not(debug_assertions))]
+        if is_move
+            && from_resource.is_container()
+            && self
+                .core
+                .groupware
+                .default_calendar_name
+                .as_ref()
+                .is_some_and(|name| name == from_resource_name)
+        {
+            return Err(DavError::Condition(crate::DavErrorCondition::new(
+                StatusCode::FORBIDDEN,
+                dav_proto::schema::response::CalCondition::DefaultCalendarNeeded,
+            )));
+        }
 
         // Validate ACL
         if !access_token.is_member(from_account_id)
@@ -243,6 +258,7 @@ impl CalendarCopyMoveRequestHandler for Server {
                             to_resource.document_id().into(),
                             to_calendar_id,
                             new_name,
+                            headers.if_schedule_tag,
                         )
                         .await
                     } else {
@@ -310,6 +326,7 @@ impl CalendarCopyMoveRequestHandler for Server {
                             None,
                             to_calendar_id,
                             new_name,
+                            headers.if_schedule_tag,
                         )
                         .await
                     } else {
@@ -523,6 +540,7 @@ async fn copy_event(
                     to_document_id,
                     to_calendar_id,
                     None,
+                    false,
                     &mut batch,
                 )
                 .caused_by(trc::location!())?;
@@ -553,6 +571,7 @@ async fn move_event(
     to_document_id: Option<u32>,
     to_calendar_id: u32,
     new_name: &str,
+    if_schedule_tag: Option<u32>,
 ) -> crate::Result<HttpResponse> {
     // Fetch event
     let event_ = server
@@ -563,6 +582,13 @@ async fn move_event(
     let event = event_
         .to_unarchived::<CalendarEvent>()
         .caused_by(trc::location!())?;
+
+    // Validate headers
+    if if_schedule_tag.is_some()
+        && event.inner.schedule_tag.as_ref().map(|t| t.to_native()) != if_schedule_tag
+    {
+        return Err(DavError::Code(StatusCode::PRECONDITION_FAILED));
+    }
 
     // Validate UID
     if from_account_id != to_account_id
@@ -634,6 +660,7 @@ async fn move_event(
                 from_document_id,
                 from_calendar_id,
                 from_resource_path.into(),
+                false,
                 &mut batch,
             )
             .caused_by(trc::location!())?;
@@ -672,6 +699,7 @@ async fn move_event(
                     to_document_id,
                     to_calendar_id,
                     None,
+                    false,
                     &mut batch,
                 )
                 .caused_by(trc::location!())?;
@@ -810,6 +838,7 @@ async fn copy_container(
                     to_document_id,
                     to_children_ids,
                     None,
+                    false,
                     &mut batch,
                 )
                 .await
@@ -893,6 +922,7 @@ async fn copy_container(
                             from_child_document_id,
                             from_document_id,
                             None,
+                            false,
                             &mut batch,
                         )
                         .caused_by(trc::location!())?;

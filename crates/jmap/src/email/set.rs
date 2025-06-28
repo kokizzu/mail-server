@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020 Stalwart Labs Ltd <hello@stalw.art>
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
@@ -86,9 +86,6 @@ impl EmailSet for Server {
 
         let mut last_change_id = None;
         let will_destroy = request.unwrap_destroy();
-
-        // Obtain quota
-        let resource_token = self.get_resource_token(access_token, account_id).await?;
 
         // Process creates
         'create: for (id, mut object) in request.unwrap_create() {
@@ -706,7 +703,7 @@ impl EmailSet for Server {
                 .email_ingest(IngestEmail {
                     raw_message: &raw_message,
                     message: MessageParser::new().parse(&raw_message),
-                    resource: resource_token.clone(),
+                    access_token,
                     mailbox_ids: mailboxes,
                     keywords,
                     received_at,
