@@ -299,11 +299,16 @@ impl<T: SessionStream> Session<T> {
                                     Details = syntax
                                 );
 
-                                self.write(
-                                    format!("501 5.5.2 Syntax error, expected: {syntax}\r\n")
-                                        .as_bytes(),
-                                )
-                                .await?;
+                                if !self.params.ehlo_reject_non_fqdn && syntax.starts_with("EHLO ")
+                                {
+                                    self.handle_ehlo("null".to_string(), true).await?
+                                } else {
+                                    self.write(
+                                        format!("501 5.5.2 Syntax error, expected: {syntax}\r\n")
+                                            .as_bytes(),
+                                    )
+                                    .await?;
+                                }
                             }
                             Error::InvalidParameter { param } => {
                                 trc::event!(
